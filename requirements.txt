@@ -2,9 +2,6 @@ python-dotenv
 flask
 anthropic
 google-generativeai
-langchain
-langchain-anthropic
-langchain-openai
 openai
 PyPDF2
 requests
