@@ -8,6 +8,7 @@ class LLMProvider(Enum):
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
     OPENAI = "openai"
+    MISTRAL = "mistral"
 
 class ModelType(Enum):
     REASONING = "reasoning"
@@ -22,6 +23,7 @@ class Config:
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
     GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
     
     # Temperature setting
     TEMPERATURE = 0.0
@@ -62,6 +64,18 @@ class Config:
                 "name": "chatgpt-4o-latest",
                 "max_tokens": 4096,
                 "context_limit": 200000
+            }
+        },
+        LLMProvider.MISTRAL: {
+            ModelType.REASONING: {
+                "name": "mistral-large-latest",
+                "max_tokens": 4096,
+                "context_limit": 32768
+            },
+            ModelType.ANALYSIS: {
+                "name": "mistral-ocr-latest",
+                "max_tokens": 4096,
+                "context_limit": 32768
             }
         }
     }

@@ -16,7 +16,7 @@ import time
 
 # Configure logging
 logging.basicConfig(
-    level=logging.CRITICAL,  
+    level=logging.INFO,  
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
