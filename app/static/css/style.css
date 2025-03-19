@@ -1061,4 +1061,29 @@ input[type="file"] {
 
 .status-message {
     color: var(--text-secondary);
+}
+
+/* Add these styles to your existing CSS */
+.document-types span {
+    transition: all 0.2s ease;
+}
+
+.metric-card {
+    background-color: #f9fafb;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+}
+
+.data-sources {
+    background-color: #f9fafb;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-top: 1rem;
+}
+
+.analysis-metadata {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 1rem;
+    margin-top: 2rem;
 } 

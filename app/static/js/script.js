@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('Underwrite response:', result);
 
                 // Display results
-                displayResults(result);
+                handleAnalysisResults(result);
 
             } catch (error) {
                 console.error('Error during underwriting:', error);
@@ -996,90 +996,173 @@ function updateFinancialTab(response) {
 // Add this helper function to render each product section
 function renderProductSection(productName, recommendation) {
     if (!recommendation) return '';
+    
+    const dataSourcesUsed = recommendation.analysis_based_on ? `
+        <div class="data-sources mt-4 text-sm text-gray-600">
+            <p>Analysis based on:</p>
+            <ul class="list-disc pl-5">
+                ${recommendation.analysis_based_on.used_bank_statements ? '<li>Bank Statements</li>' : ''}
+                ${recommendation.analysis_based_on.used_tax_returns ? '<li>Tax Returns</li>' : ''}
+            </ul>
+        </div>
+    ` : '';
 
     return `
-        <div class="bg-white rounded-lg shadow p-6">
-            <div class="flex items-center justify-between mb-6">
-                <h3 class="text-xl font-semibold">${productName}</h3>
-                <span class="px-4 py-1 rounded-full ${
-                    recommendation.approval_decision 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }">
-                    ${recommendation.approval_decision ? 'Approved' : 'Not Approved'}
-                </span>
-            </div>
-
-            <!-- Product Details -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Maximum Amount</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_loan_amount)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">${productName === 'Term Loan' ? 'Monthly Payment' : 'Maximum Draw'}</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_monthly_payment_amount)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Confidence Score</p>
-                    <p class="text-lg font-semibold">${(recommendation.confidence_score * 100).toFixed(1)}%</p>
+        <div class="product-section mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">${recommendation.product_name}</h3>
+                <div id="${productName}-status">
+                    <span class="px-4 py-1 rounded-full text-sm font-semibold ${
+                        recommendation.approval_decision === true
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : recommendation.approval_decision === "ERROR"
+                            ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                            : 'bg-red-100 text-red-800 border border-red-200'
+                    }">
+                        ${recommendation.approval_decision === true 
+                            ? 'Approved' 
+                            : recommendation.approval_decision === "ERROR"
+                            ? 'Error'
+                            : 'Not Approved'}
+                    </span>
                 </div>
             </div>
-
-            <!-- Analysis -->
-            <div class="mb-6">
-                <h4 class="font-semibold text-gray-700 mb-2">Analysis</h4>
-                <p class="text-gray-600">${recommendation.detailed_analysis}</p>
-            </div>
-
-            <!-- Factors -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Risk Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${recommendation.risk_factors.map(factor => 
-                            `<li class="text-red-600">${factor}</li>`
-                        ).join('')}
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Mitigating Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${recommendation.mitigating_factors.map(factor => 
-                            `<li class="text-green-600">${factor}</li>`
-                        ).join('')}
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Conditions -->
-            <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Conditions if Approved</h4>
-                <ul class="list-disc pl-5 space-y-1">
-                    ${recommendation.conditions_if_approved.map(condition => 
-                        `<li class="text-gray-600">${condition}</li>`
-                    ).join('')}
-                </ul>
-            </div>
-
-            <!-- Product-specific details -->
-            ${recommendation.product_details ? `
-                <div class="mt-6 pt-6 border-t border-gray-200">
-                    <h4 class="font-semibold text-gray-700 mb-2">Product Details</h4>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        ${Object.entries(recommendation.product_details).map(([key, value]) => `
-                            <div class="bg-gray-50 rounded-lg p-3">
-                                <p class="text-xs text-gray-500">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
-                                <p class="text-sm font-semibold">${
-                                    typeof value === 'number' && key.includes('rate') 
-                                    ? `${value}%` 
-                                    : value
-                                }</p>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : ''}
+            
+            <!-- Rest of the existing product section code -->
+            
+            ${dataSourcesUsed}
         </div>
     `;
+}
+
+// Add this function to render document type indicators
+function renderDocumentTypes(documentTypes) {
+    return `
+    <div class="document-types mb-4 flex gap-2">
+        <span class="px-3 py-1 rounded-full text-sm font-medium ${
+            documentTypes.has_bank_statements 
+            ? 'bg-green-100 text-green-800 border border-green-200' 
+            : 'bg-gray-100 text-gray-800 border border-gray-200'
+        }">
+            Bank Statements ${documentTypes.has_bank_statements ? '✓' : '✗'}
+        </span>
+        <span class="px-3 py-1 rounded-full text-sm font-medium ${
+            documentTypes.has_tax_returns 
+            ? 'bg-green-100 text-green-800 border border-green-200' 
+            : 'bg-gray-100 text-gray-800 border border-gray-200'
+        }">
+            Tax Returns ${documentTypes.has_tax_returns ? '✓' : '✗'}
+        </span>
+    </div>`;
+}
+
+// Add this function to render analysis section
+function renderAnalysisSection(analysis) {
+    let bankAnalysis = '';
+    let taxAnalysis = '';
+    
+    if (analysis.bank_statements) {
+        if (analysis.bank_statements.error) {
+            bankAnalysis = `
+                <div class="error-message bg-red-50 border border-red-200 p-4 rounded-md mb-4">
+                    <h4 class="text-red-800 font-medium">Bank Statement Analysis Error</h4>
+                    <p class="text-red-600">${analysis.bank_statements.error.type}: ${
+                        analysis.bank_statements.error.explanation || analysis.bank_statements.error.message
+                    }</p>
+                </div>`;
+        } else {
+            bankAnalysis = `
+                <div class="bank-analysis bg-white p-4 rounded-md shadow-sm mb-4">
+                    <h4 class="font-semibold text-gray-800 mb-2">Bank Statement Analysis</h4>
+                    ${renderBankMetrics(analysis.bank_statements)}
+                </div>`;
+        }
+    }
+    
+    if (analysis.tax_returns) {
+        if (analysis.tax_returns.status === "pending") {
+            taxAnalysis = `
+                <div class="tax-analysis bg-yellow-50 border border-yellow-200 p-4 rounded-md mb-4">
+                    <h4 class="font-semibold text-gray-800 mb-2">Tax Return Analysis</h4>
+                    <p class="text-yellow-600">${analysis.tax_returns.message}</p>
+                </div>`;
+        } else {
+            // Add tax return analysis rendering when implemented
+            taxAnalysis = `
+                <div class="tax-analysis bg-white p-4 rounded-md shadow-sm mb-4">
+                    <h4 class="font-semibold text-gray-800 mb-2">Tax Return Analysis</h4>
+                    ${renderTaxMetrics(analysis.tax_returns)}
+                </div>`;
+        }
+    }
+    
+    return bankAnalysis + taxAnalysis;
+}
+
+// Helper function to render bank metrics
+function renderBankMetrics(bankData) {
+    if (!bankData) return '';
+    
+    return `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${bankData.continuity ? `
+                <div class="metric-card">
+                    <h5 class="text-sm font-medium text-gray-600">Statement Continuity</h5>
+                    <p class="text-base">${bankData.continuity.analysis.is_contiguous ? 'Continuous' : 'Gaps Present'}</p>
+                </div>
+            ` : ''}
+            ${bankData.monthly_financials ? `
+                <div class="metric-card">
+                    <h5 class="text-sm font-medium text-gray-600">Average Monthly Revenue</h5>
+                    <p class="text-base">$${formatNumber(bankData.monthly_financials.average_monthly_revenue)}</p>
+                </div>
+            ` : ''}
+            <!-- Add more metrics as needed -->
+        </div>
+    `;
+}
+
+// Update the existing handleAnalysisResults function
+function handleAnalysisResults(response) {
+    const resultsSection = document.getElementById('results-section');
+    const summaryTab = document.querySelector('[data-tab="summary"]');
+    
+    if (!resultsSection || !summaryTab) return;
+    
+    // Show results section
+    resultsSection.classList.remove('hidden');
+    
+    // Render document types
+    const documentTypesHtml = renderDocumentTypes(response.document_types);
+    
+    // Render analysis sections
+    const analysisHtml = renderAnalysisSection(response.analysis);
+    
+    // Render credit decisions
+    const creditDecisionsHtml = response.loan_recommendations
+        .map(rec => renderProductSection(rec.product_type, rec))
+        .join('');
+    
+    // Update the summary tab content
+    summaryTab.innerHTML = `
+        ${documentTypesHtml}
+        ${analysisHtml}
+        <div class="credit-decisions mt-6">
+            <h3 class="text-xl font-semibold mb-4">Credit Decisions</h3>
+            ${creditDecisionsHtml}
+        </div>
+        
+        <div class="analysis-metadata mt-6 text-sm text-gray-600">
+            <p>Analysis completed at: ${new Date(response.analysis_metadata.analysis_timestamp * 1000).toLocaleString()}</p>
+            <p>Provider used: ${response.analysis_metadata.provider_used}</p>
+        </div>
+    `;
+}
+
+// Add this helper function for number formatting
+function formatNumber(number) {
+    return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(number);
 } 
