@@ -1165,4 +1165,118 @@ function formatNumber(number) {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
     }).format(number);
+}
+
+// Update the startAnalysis function to include merged_files
+function startAnalysis(uploadResponse) {
+    console.log('Starting analysis with:', uploadResponse); // Debug log
+    
+    // Show loading container
+    document.querySelector('.loading-container').classList.remove('hidden');
+    document.getElementById('results-section').classList.add('hidden');
+    
+    // Ensure we have the required data
+    if (!uploadResponse || !uploadResponse.original_files || !uploadResponse.merged_files) {
+        console.error('Invalid upload response:', uploadResponse);
+        document.getElementById('error-message').textContent = 'Missing required data from upload';
+        document.getElementById('error-container').classList.remove('hidden');
+        document.querySelector('.loading-container').classList.add('hidden');
+        return;
+    }
+    
+    // Prepare the request data
+    const requestData = {
+        file_paths: uploadResponse.original_files || [],
+        merged_files: uploadResponse.merged_files || {},
+        provider: document.getElementById('llm-provider').value || 'openai',
+        debug: false
+    };
+
+    console.log('Sending underwrite request:', requestData); // Debug log
+
+    // Make the underwrite request
+    fetch('/underwrite', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        console.log('Underwrite response status:', response.status); // Debug log
+        if (!response.ok) {
+            return response.json().then(err => {
+                console.error('Underwrite error:', err); // Debug log
+                throw new Error(err.error || 'Analysis failed');
+            });
+        }
+        return response.json();
+    })
+    .then(response => {
+        console.log('Analysis results:', response); // Debug log
+        handleAnalysisResults(response);
+    })
+    .catch(error => {
+        console.error('Analysis error:', error); // Debug log
+        document.getElementById('error-message').textContent = error.message;
+        document.getElementById('error-container').classList.remove('hidden');
+        document.querySelector('.loading-container').classList.add('hidden');
+    });
+
+    // Start polling for status updates
+    startStatusPolling();
+}
+
+// Update the handleUploadResponse function
+function handleUploadResponse(response) {
+    if (response.error) {
+        document.getElementById('error-message').textContent = response.error;
+        document.getElementById('error-container').classList.remove('hidden');
+        return;
+    }
+    
+    // Clear any previous errors
+    document.getElementById('error-container').classList.add('hidden');
+    
+    // Start the analysis with the upload response
+    startAnalysis(response);
+}
+
+// Add this function to handle file uploads
+function handleFileUpload(files) {
+    const formData = new FormData();
+    for (let file of files) {
+        formData.append('files', file);
+    }
+
+    // Show loading state
+    document.querySelector('.loading-container').classList.remove('hidden');
+    
+    // Log what we're sending
+    console.log('Uploading files:', files);
+
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(uploadResponse => {
+        console.log('Upload response:', uploadResponse); // Debug log
+        
+        if (uploadResponse.error) {
+            throw new Error(uploadResponse.error);
+        }
+        
+        // Store upload response in a data attribute for later use
+        document.getElementById('upload-response').dataset.uploadData = JSON.stringify(uploadResponse);
+        
+        // Start analysis with the upload response
+        startAnalysis(uploadResponse);
+    })
+    .catch(error => {
+        console.error('Upload error:', error); // Debug log
+        document.getElementById('error-message').textContent = error.message;
+        document.getElementById('error-container').classList.remove('hidden');
+        document.querySelector('.loading-container').classList.add('hidden');
+    });
 } 
