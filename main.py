@@ -58,23 +58,58 @@ def upload_files():
     if not files or files[0].filename == '':
         return jsonify({"error": "No files selected"}), 400
     
-    file_paths = []
-    
-    for file in files:
-        if file and file.filename.endswith('.pdf'):
-            # Create a unique filename to avoid collisions
-            filename = secure_filename(file.filename)
-            unique_filename = f"{uuid.uuid4()}_{filename}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    try:
+        file_paths = []
+        
+        # Save uploaded files with unique names
+        for file in files:
+            if file and file.filename.endswith('.pdf'):
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4()}_{filename}"
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                
+                logger.info(f"Saving uploaded file: {filename} as {unique_filename}")
+                file.save(file_path)
+                file_paths.append(file_path)
+        
+        if not file_paths:
+            return jsonify({"error": "No valid PDF files uploaded"}), 400
             
-            # Save the file
-            file.save(file_path)
-            file_paths.append(file_path)
-    
-    if not file_paths:
-        return jsonify({"error": "No valid PDF files uploaded"}), 400
-    
-    return jsonify({"file_paths": file_paths})
+        # Classify and merge files by type
+        logger.info("Classifying and merging uploaded files")
+        merged_files = content_service.merge_pdfs_by_type(file_paths)
+        
+        # Prepare response with document counts
+        response = {
+            "merged_files": merged_files,
+            "summary": {
+                "total_files": len(file_paths),
+                "bank_statements": "bank_statements" in merged_files,
+                "tax_returns": "tax_returns" in merged_files
+            },
+            "original_files": file_paths
+        }
+        
+        logger.info(f"Upload processed successfully: {json.dumps(response, indent=2)}")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error processing upload: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Clean up any saved files on error
+        for path in file_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.info(f"Cleaned up file after error: {path}")
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up file {path}: {str(cleanup_error)}")
+        
+        return jsonify({
+            "error": "Error processing upload",
+            "details": str(e)
+        }), 500
 
 @app.route('/underwrite', methods=['POST'])
 def underwrite():
@@ -83,10 +118,12 @@ def underwrite():
     
     debug_mode = request.json.get('debug', False)
     file_paths = request.json.get('file_paths', [])
+    merged_files = request.json.get('merged_files', {})  # New parameter from upload
     provider = request.json.get('provider')
     
     logger.info(f"Debug mode: {debug_mode}")
     logger.info(f"File paths: {file_paths}")
+    logger.info(f"Merged files: {merged_files}")
     logger.info(f"Provider: {provider}")
     
     if not file_paths:
@@ -102,7 +139,7 @@ def underwrite():
                 provider = LLMProvider(provider_value)
                 analysis_llm = LLMFactory.create_llm(
                     provider=provider,
-                    model_type=None  # Use default model type
+                    model_type=None
                 )
             except ValueError as e:
                 logger.error(f"Invalid configuration error: {str(e)}")
@@ -113,158 +150,170 @@ def underwrite():
             analysis_llm = LLMFactory.create_llm()
         
         set_llm(analysis_llm)
-    
         send_status("llm_setup", "Complete", "LLM initialized successfully")
 
-        # Process and add PDFs
-        send_status("pdf_processing", "Processing", "Merging PDF files")
-        merged_pdf_path = content_service.merge_pdfs(file_paths)
-        analysis_llm.add_pdf(merged_pdf_path)
-        send_status("pdf_processing", "Complete", "PDFs processed successfully")
-
-        # Check statement continuity first
-        send_status("continuity", "Processing", "Checking statement continuity")
-        continuity_json = check_statement_continuity("None")
-        continuity_data = json.loads(continuity_json)
-        
-        is_contiguous = continuity_data.get("analysis", {}).get("is_contiguous", False)
-        explanation = continuity_data.get("analysis", {}).get("explanation", "No explanation provided")
-        gap_details = continuity_data.get("analysis", {}).get("gap_details", [])
-        
-        if not is_contiguous:
-            logger.warning("❌ Bank statements are not contiguous!")
-            logger.warning(f"Analysis: {explanation}")
-            if gap_details:
-                logger.warning(f"Found gaps: {gap_details}")
-            send_status("continuity", "Error", f"Statements not contiguous: {explanation}")
-            return jsonify({
-                "error": "Bank statements are not contiguous",
-                "metrics": {
-                    "statement_continuity": continuity_data
-                },
-                "details": {
-                    "explanation": explanation,
-                    "gap_details": gap_details
-                }
-            })
-        
-        send_status("continuity", "Complete", "Statements are contiguous")
-        
         # Initialize master response
         master_response = {
-            "metrics": {
-                "statement_continuity": continuity_data
-            }
+            "metrics": {},
+            "analysis": {}
         }
-        
-        # Run all analyses in sequence
-        try:
-            # 1. Daily Balances
-            send_status("daily_balances", "Processing", "Analyzing daily balances")
-            input_data = json.dumps({"continuity_data": continuity_data})
-            balances_json = extract_daily_balances(input_data)
-            master_response["metrics"]["daily_balances"] = json.loads(balances_json)
-            send_status("daily_balances", "Complete", "Daily balance analysis complete")
+
+        # Process bank statements if present
+        if "bank_statements" in merged_files:
+            send_status("bank_analysis", "Processing", "Analyzing bank statements")
+            bank_statement_path = merged_files["bank_statements"]
             
-            # 2. NSF Check
-            send_status("nsf", "Processing", "Checking for NSF incidents")
-            nsf_json = check_nsf("None")
-            master_response["metrics"]["nsf_information"] = json.loads(nsf_json)
-            send_status("nsf", "Complete", "NSF analysis complete")
+            # Add bank statements to LLM context
+            analysis_llm.add_pdf(bank_statement_path)
             
-            # 3. Monthly Closing Balances
-            send_status("closing_balances", "Processing", "Analyzing monthly closing balances")
-            closing_balances_json = extract_monthly_closing_balances("None")
-            master_response["metrics"]["closing_balances"] = json.loads(closing_balances_json)
-            send_status("closing_balances", "Complete", "Monthly closing balance analysis complete")
+            # Run existing bank statement analysis pipeline
+            continuity_json = check_statement_continuity("None")
+            continuity_data = json.loads(continuity_json)
             
-            # 4. Monthly Financials
-            send_status("monthly_financials", "Processing", "Analyzing monthly financials")
-            monthly_financials_json = analyze_monthly_financials("None")
-            master_response["metrics"]["monthly_financials"] = json.loads(monthly_financials_json)
-            send_status("monthly_financials", "Complete", "Monthly financial analysis complete")
+            is_contiguous = continuity_data.get("analysis", {}).get("is_contiguous", False)
+            explanation = continuity_data.get("analysis", {}).get("explanation", "No explanation provided")
+            gap_details = continuity_data.get("analysis", {}).get("gap_details", [])
             
-        except Exception as e:
-            logger.error(f"Error during analysis: {str(e)}")
-            send_status("analysis", "Error", f"Analysis failed: {str(e)}")
-            return jsonify({
-                "error": "Analysis failed",
-                "details": str(e),
-                "partial_results": master_response
-            }), 500
-        
-        # Switch to reasoning LLM for credit analysis
-        try:
-            # Use the same provider as selected in the UI
-            send_status("llm_setup", "Processing", f"Initializing Reasoning LLM with {provider}")
-            reasoning_llm = LLMFactory.create_llm(
-                provider=provider,  # Use the same provider from UI
-                model_type=ModelType.REASONING
-            )
-            set_llm(reasoning_llm)
-            reasoning_llm.add_json(master_response)
-            
-            # Perform credit analysis for both products
-            send_status("credit_analysis", "Processing", "Analyzing Term Loan product")
-            term_loan_analysis = analyze_credit_decision_term_loan("None")
-            term_loan_recommendation = term_loan_analysis.get("credit_analysis", {}).get("loan_recommendation", {})
-            
-            send_status("credit_analysis", "Processing", "Analyzing Accounts Payable product")
-            accounts_payable_analysis = analyze_credit_decision_accounts_payable("None")
-            accounts_payable_recommendation = accounts_payable_analysis.get("credit_analysis", {}).get("loan_recommendation", {})
-            
-            # Combine both analyses into the master response
-            master_response["loan_recommendations"] = [
-                term_loan_recommendation,
-                accounts_payable_recommendation
-            ]
-            
-            send_status("credit_analysis", "Complete", "Credit analysis complete for all products")
-            
-        except Exception as e:
-            logger.error(f"Error during credit analysis: {str(e)}")
-            send_status("credit_analysis", "Error", f"Credit analysis failed: {str(e)}")
-            master_response["loan_recommendations"] = [
-                {
-                    "product_type": "term_loan",
-                    "product_name": "Term Loan",
-                    "approval_decision": "ERROR",
-                    "confidence_score": 0,
-                    "max_loan_amount": 0,
-                    "max_monthly_payment_amount": 0,
-                    "detailed_analysis": f"Credit analysis failed: {str(e)}",
-                    "mitigating_factors": [],
-                    "risk_factors": ["Analysis error occurred"],
-                    "conditions_if_approved": [],
-                    "key_metrics": {
-                        "payment_coverage_ratio": 0,
-                        "average_daily_balance_trend": "N/A",
-                        "lowest_monthly_balance": 0,
-                        "highest_nsf_month_count": 0
+            if not is_contiguous:
+                logger.warning("❌ Bank statements are not contiguous!")
+                logger.warning(f"Analysis: {explanation}")
+                if gap_details:
+                    logger.warning(f"Found gaps: {gap_details}")
+                send_status("continuity", "Error", f"Statements not contiguous: {explanation}")
+                return jsonify({
+                    "error": "Bank statements are not contiguous",
+                    "metrics": {
+                        "statement_continuity": continuity_data
+                    },
+                    "details": {
+                        "explanation": explanation,
+                        "gap_details": gap_details
                     }
-                },
-                {
-                    "product_type": "accounts_payable",
-                    "product_name": "Accounts Payable Financing",
-                    "approval_decision": "ERROR",
-                    "confidence_score": 0,
-                    "max_loan_amount": 0,
-                    "max_monthly_payment_amount": 0,
-                    "detailed_analysis": f"Credit analysis failed: {str(e)}",
-                    "mitigating_factors": [],
-                    "risk_factors": ["Analysis error occurred"],
-                    "conditions_if_approved": [],
-                    "key_metrics": {
-                        "payment_coverage_ratio": 0,
-                        "average_daily_balance_trend": "N/A",
-                        "lowest_monthly_balance": 0,
-                        "highest_nsf_month_count": 0
+                })
+            
+            send_status("continuity", "Complete", "Statements are contiguous")
+            master_response["metrics"]["statement_continuity"] = continuity_data
+            
+            try:
+                # 1. Daily Balances
+                send_status("daily_balances", "Processing", "Analyzing daily balances")
+                input_data = json.dumps({"continuity_data": continuity_data})
+                balances_json = extract_daily_balances(input_data)
+                master_response["metrics"]["daily_balances"] = json.loads(balances_json)
+                send_status("daily_balances", "Complete", "Daily balance analysis complete")
+                
+                # 2. NSF Check
+                send_status("nsf", "Processing", "Checking for NSF incidents")
+                nsf_json = check_nsf("None")
+                master_response["metrics"]["nsf_information"] = json.loads(nsf_json)
+                send_status("nsf", "Complete", "NSF analysis complete")
+                
+                # 3. Monthly Closing Balances
+                send_status("closing_balances", "Processing", "Analyzing monthly closing balances")
+                closing_balances_json = extract_monthly_closing_balances("None")
+                master_response["metrics"]["closing_balances"] = json.loads(closing_balances_json)
+                send_status("closing_balances", "Complete", "Monthly closing balance analysis complete")
+                
+                # 4. Monthly Financials
+                send_status("monthly_financials", "Processing", "Analyzing monthly financials")
+                monthly_financials_json = analyze_monthly_financials("None")
+                master_response["metrics"]["monthly_financials"] = json.loads(monthly_financials_json)
+                send_status("monthly_financials", "Complete", "Monthly financial analysis complete")
+                
+            except Exception as e:
+                logger.error(f"Error during bank statement analysis: {str(e)}")
+                send_status("analysis", "Error", f"Bank statement analysis failed: {str(e)}")
+                return jsonify({
+                    "error": "Bank statement analysis failed",
+                    "details": str(e),
+                    "partial_results": master_response
+                }), 500
+
+        # Process tax returns if present
+        if "tax_returns" in merged_files:
+            send_status("tax_analysis", "Processing", "Analyzing tax returns")
+            tax_return_path = merged_files["tax_returns"]
+            
+            # Add tax returns to LLM context
+            analysis_llm.add_pdf(tax_return_path)
+            
+            # TODO: Add tax return analysis functions here
+            # This will be implemented in the next step
+            master_response["analysis"]["tax_returns"] = {
+                "status": "pending",
+                "message": "Tax return analysis to be implemented"
+            }
+            
+            send_status("tax_analysis", "Complete", "Tax return analysis complete")
+
+        # Perform credit analysis if we have both document types
+        if all(k in merged_files for k in ["bank_statements", "tax_returns"]):
+            send_status("credit_analysis", "Processing", "Performing comprehensive credit analysis")
+            
+            # Switch to reasoning LLM for credit analysis
+            try:
+                reasoning_llm = LLMFactory.create_llm(
+                    provider=provider,
+                    model_type=ModelType.REASONING
+                )
+                set_llm(reasoning_llm)
+                reasoning_llm.add_json(master_response)
+                
+                # Perform credit analysis for both products
+                term_loan_analysis = analyze_credit_decision_term_loan("None")
+                term_loan_recommendation = term_loan_analysis.get("credit_analysis", {}).get("loan_recommendation", {})
+                
+                accounts_payable_analysis = analyze_credit_decision_accounts_payable("None")
+                accounts_payable_recommendation = accounts_payable_analysis.get("credit_analysis", {}).get("loan_recommendation", {})
+                
+                master_response["loan_recommendations"] = [
+                    term_loan_recommendation,
+                    accounts_payable_recommendation
+                ]
+                
+            except Exception as e:
+                logger.error(f"Error during credit analysis: {str(e)}")
+                send_status("credit_analysis", "Error", f"Credit analysis failed: {str(e)}")
+                master_response["loan_recommendations"] = [
+                    {
+                        "product_type": "term_loan",
+                        "product_name": "Term Loan",
+                        "approval_decision": "ERROR",
+                        "confidence_score": 0,
+                        "max_loan_amount": 0,
+                        "max_monthly_payment_amount": 0,
+                        "detailed_analysis": f"Credit analysis failed: {str(e)}",
+                        "mitigating_factors": [],
+                        "risk_factors": ["Analysis error occurred"],
+                        "conditions_if_approved": [],
+                        "key_metrics": {
+                            "payment_coverage_ratio": 0,
+                            "average_daily_balance_trend": "N/A",
+                            "lowest_monthly_balance": 0,
+                            "highest_nsf_month_count": 0
+                        }
+                    },
+                    {
+                        "product_type": "accounts_payable",
+                        "product_name": "Accounts Payable Financing",
+                        "approval_decision": "ERROR",
+                        "confidence_score": 0,
+                        "max_loan_amount": 0,
+                        "max_monthly_payment_amount": 0,
+                        "detailed_analysis": f"Credit analysis failed: {str(e)}",
+                        "mitigating_factors": [],
+                        "risk_factors": ["Analysis error occurred"],
+                        "conditions_if_approved": [],
+                        "key_metrics": {
+                            "payment_coverage_ratio": 0,
+                            "average_daily_balance_trend": "N/A",
+                            "lowest_monthly_balance": 0,
+                            "highest_nsf_month_count": 0
+                        }
                     }
-                }
-            ]
-        
+                ]
+
         send_status("complete", "Success", "All analyses complete")
-        # Log the formatted JSON response
         logger.info("Master response:")
         logger.info("-" * 50)
         logger.info(json.dumps(master_response, indent=2))
