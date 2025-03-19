@@ -136,72 +136,37 @@ document.addEventListener('DOMContentLoaded', function() {
         // Handle form submission
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
-            console.log('Form submitted');
-
-            // Clear previous results and status
-            resultsSection.classList.add('hidden');
-            resultsContent.innerHTML = '';
             
-            const statusList = document.querySelector('.status-list');
-            statusList.innerHTML = ''; // Clear previous status messages
-
-            // Show loading container
-            loadingContainer.classList.remove('hidden');
-
-            // Disable submit button
-            submitBtn.disabled = true;
-
-            // Hide the upload section when underwriting starts
-            const uploadContent = document.getElementById('upload-content');
-            uploadContent.classList.add('hidden');
-            const toggleBtn = document.getElementById('toggle-upload-btn');
-            if (toggleBtn) {
-                const icon = toggleBtn.querySelector('.toggle-icon');
-                if (icon) icon.textContent = '▼';
-            }
-
-            // Start listening for status updates BEFORE making the request
-            const eventSource = new EventSource('/status');
-            
-            eventSource.onmessage = function(event) {
-                try {
-                    const status = JSON.parse(event.data);
-                    updateStatus(status);
-                    
-                    // If we receive a "complete" or "error" status, close the connection
-                    if (status.status === 'Success' || status.status === 'Error') {
-                        eventSource.close();
-                    }
-                } catch (error) {
-                    console.error('Error parsing status update:', error);
-                }
-            };
+            // ... existing file validation code ...
 
             try {
                 // First, upload the files
-                const uploadedFiles = await uploadFiles(selectedFiles);
-                console.log('Files uploaded:', uploadedFiles);
+                const uploadResponse = await uploadFiles(selectedFiles);
+                console.log('Upload response:', uploadResponse);
+
+                if (uploadResponse.error) {
+                    throw new Error(uploadResponse.error);
+                }
 
                 // Then process them with the underwrite endpoint
                 const provider = document.getElementById('provider').value;
                 const debugMode = document.getElementById('debug').checked;
                 
-                console.log('Sending underwrite request:', {
-                    file_paths: uploadedFiles,
-                    provider: provider,
+                const requestData = {
+                    file_paths: uploadResponse.original_files,
+                    merged_files: uploadResponse.merged_files,
+                    provider: provider.toLowerCase(),
                     debug: debugMode
-                });
+                };
+                
+                console.log('Sending underwrite request:', requestData);
 
                 const response = await fetch('/underwrite', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        file_paths: uploadedFiles,
-                        provider: provider.toLowerCase(),
-                        debug: debugMode
-                    })
+                    body: JSON.stringify(requestData)
                 });
 
                 if (!response.ok) {
@@ -225,18 +190,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         <p class="text-red-600">${error.message}</p>
                     </div>
                 `;
-
-            } finally {
-                // Re-enable submit button
-                submitBtn.disabled = false;
-                
-                // Hide loading container only after we're done with everything
-                loadingContainer.classList.add('hidden');
-                
-                // Close the event source if it hasn't been closed already
-                if (eventSource.readyState !== EventSource.CLOSED) {
-                    eventSource.close();
-                }
             }
         });
     } else {
@@ -245,24 +198,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to upload files
     async function uploadFiles(files) {
-        console.log('Uploading files:', files);
         const formData = new FormData();
-        
-        files.forEach(file => {
+        for (let file of files) {
             formData.append('files', file);
-        });
-        
+        }
+
         const response = await fetch('/upload', {
             method: 'POST',
             body: formData
         });
-        
+
         if (!response.ok) {
-            throw new Error(`File upload failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Upload failed: ${response.statusText}`);
         }
-        
-        const result = await response.json();
-        return result.file_paths;
+
+        return response.json();
     }
     
     // Function to update status display
