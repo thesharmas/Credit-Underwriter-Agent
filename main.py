@@ -54,6 +54,11 @@ def upload_files():
         return jsonify({"error": "No files part in the request"}), 400
     
     files = request.files.getlist('files')
+    provider = request.form.get('provider')
+    
+    # Add debug logging
+    logger.info(f"Received upload request with provider: {provider}")
+    logger.info(f"Form data: {request.form}")
     
     if not files or files[0].filename == '':
         return jsonify({"error": "No files selected"}), 400
@@ -75,9 +80,17 @@ def upload_files():
         if not file_paths:
             return jsonify({"error": "No valid PDF files uploaded"}), 400
             
+        # Convert provider string to enum and pass it to merge_pdfs_by_type
+        if provider:
+            provider_enum = LLMProvider(provider.lower())
+            logger.info(f"Using provider {provider_enum} for document classification")
+        else:
+            logger.warning("No provider specified in upload request, using default")
+            provider_enum = Config.DEFAULT_PROVIDER
+        
         # Classify and merge files by type
         logger.info("Classifying and merging uploaded files")
-        merged_files = content_service.merge_pdfs_by_type(file_paths)
+        merged_files = content_service.merge_pdfs_by_type(file_paths, provider=provider_enum)
         
         # Prepare response with document counts
         response = {
@@ -87,7 +100,8 @@ def upload_files():
                 "bank_statements": "bank_statements" in merged_files,
                 "tax_returns": "tax_returns" in merged_files
             },
-            "original_files": file_paths
+            "original_files": file_paths,
+            "provider": provider  # Include provider in response for verification
         }
         
         logger.info(f"Upload processed successfully: {json.dumps(response, indent=2)}")

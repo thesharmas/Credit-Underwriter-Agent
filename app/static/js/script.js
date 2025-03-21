@@ -198,20 +198,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to upload files
     async function uploadFiles(files) {
+        console.log('Uploading files:', files);
         const formData = new FormData();
-        for (let file of files) {
+        
+        // Get provider from the correct element ID
+        const provider = document.getElementById('provider').value;  // matches the HTML ID
+        console.log('Selected provider:', provider);  // Debug log
+        formData.append('provider', provider);
+        
+        // Add files to form data
+        files.forEach(file => {
             formData.append('files', file);
-        }
-
+        });
+        
         const response = await fetch('/upload', {
             method: 'POST',
             body: formData
         });
-
+        
         if (!response.ok) {
             throw new Error(`Upload failed: ${response.statusText}`);
         }
-
+        
         return response.json();
     }
     

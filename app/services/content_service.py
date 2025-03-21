@@ -5,7 +5,7 @@ from PyPDF2 import PdfMerger
 import uuid
 from app.services.llm_factory import LLMFactory
 from app.tools.analysis_tools import classify_document_type, set_llm
-from app.services.llm_provider import LLMProvider
+from app.config import LLMProvider
 
 logger = logging.getLogger(__name__)
 
