@@ -5,17 +5,19 @@ from PyPDF2 import PdfMerger
 import uuid
 from app.services.llm_factory import LLMFactory
 from app.tools.analysis_tools import classify_document_type, set_llm
+from app.services.llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
 class ContentService:
-    def merge_pdfs_by_type(self, file_paths: List[str], doc_type: str = None) -> Dict[str, str]:
+    def merge_pdfs_by_type(self, file_paths: List[str], doc_type: str = None, provider: LLMProvider = None) -> Dict[str, str]:
         """
         Merge PDFs by document type. If doc_type is not specified, uses AI classification.
         
         Args:
             file_paths: List of paths to PDF files
             doc_type: Optional, specific document type to merge as
+            provider: Optional, LLM provider to use for classification
             
         Returns:
             Dict mapping document types to merged PDF paths
@@ -40,7 +42,7 @@ class ContentService:
                 return {doc_type: output_path}
             else:
                 # If no type specified, classify and merge separately
-                classification_llm = LLMFactory.create_llm()
+                classification_llm = LLMFactory.create_llm(provider=provider)
                 set_llm(classification_llm)
                 
                 bank_paths = []

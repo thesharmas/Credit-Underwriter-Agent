@@ -137,9 +137,13 @@ def underwrite():
             try:
                 provider_value = provider.lower()
                 provider = LLMProvider(provider_value)
+                
+                # Pass the provider to merge_pdfs_by_type
+                merged_files = content_service.merge_pdfs_by_type(file_paths, provider=provider)
+                
                 analysis_llm = LLMFactory.create_llm(
                     provider=provider,
-                    model_type=None
+                    model_type=None  # Use default model type
                 )
             except ValueError as e:
                 logger.error(f"Invalid configuration error: {str(e)}")
