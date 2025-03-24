@@ -3,202 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Credit Risk Underwriter Agent</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <title>Credit Underwriter - File Upload</title>
+    <!-- Include Tailwind CSS from CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['Fira Code', 'monospace'],
-                    },
-                }
-            }
-        }
-    </script>
 </head>
-<body class="bg-gray-50">
-    <div class="container mx-auto px-4 py-8 max-w-6xl">
-        <h1 class="text-3xl font-bold text-gray-900 mb-8 text-center">Credit Underwriter AI Agent</h1>
-        
-        <!-- Upload Section -->
-        <div class="upload-section mb-8">
-            <div class="section-header flex justify-between items-center mb-4">
-                <h2 class="text-xl font-semibold text-gray-800">Upload Bank Statements</h2>
-                <button type="button" class="toggle-section-btn text-gray-500 hover:text-gray-700 focus:outline-none" id="toggle-upload-btn">
-                    <span class="toggle-icon text-xl">▼</span>
-                </button>
-            </div>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-3xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Credit Underwriter Agent</h1>
+            <p class="text-gray-600">Upload bank statements and tax returns for analysis</p>
+        </header>
+
+        <section class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Upload Documents</h2>
             
-            <div class="upload-content bg-white rounded-lg shadow-md p-6" id="upload-content">
-                <form id="upload-form">
-                    <div class="file-input-container mb-6">
-                        <input type="file" id="pdf-files" name="pdf-files" multiple accept=".pdf" class="hidden">
-                        <label for="pdf-files" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors">
-                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                            </svg>
-                            Choose PDF Files
+            <form id="upload-form" class="space-y-4">
+                <div class="flex flex-wrap gap-4 items-center">
+                    <div>
+                        <label for="provider" class="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
+                        <select id="provider" name="provider" class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google</option>
+                            <option value="mistral">Mistral</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-center h-10 mt-5">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox" id="debug" name="debug" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                            <span class="ml-2 text-sm text-gray-700">Debug Mode</span>
                         </label>
-                        
-                        <button type="button" id="clear-files" class="ml-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
-                            Clear Files
-                        </button>
-                        
-                        <div id="file-names" class="mt-4 space-y-2"></div>
                     </div>
-                    
-                    <div class="options-section mb-6">
-                        <h3 class="text-lg font-semibold mb-4 text-gray-700">Options</h3>
-                        <div class="space-y-4">
-                            <div class="option-group">
-                                <label for="provider" class="block text-sm font-medium text-gray-700 mb-1">
-                                    LLM Provider
-                                </label>
-                                <select id="provider" name="provider" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                    <option value="anthropic">Anthropic</option>
-                                    <option value="openai" selected>OpenAI</option>
-                                    <option value="google">Google</option>
-                                    <option value="mistral">Mistral</option>
-                                </select>
-                            </div>
-                            
-                            <div class="flex items-center mb-6">
-                                <input type="checkbox" id="debug" name="debug" class="mr-2">
-                                <label for="debug" class="text-gray-700">Debug Mode</label>
-                                <button id="openJsonLoader" class="ml-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg">
-                                    Load JSON Data
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <button type="submit" id="submit-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
-                        Underwrite
+                </div>
+                
+                <div id="file-drop-area" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input type="file" id="file-input" name="files" multiple accept=".pdf" class="hidden">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <p class="mt-2 text-sm text-gray-600">
+                        Drag and drop PDF files, or <span class="text-blue-600 font-medium">browse</span>
+                    </p>
+                    <p class="mt-1 text-xs text-gray-500">Bank statements & tax returns in PDF format</p>
+                </div>
+                
+                <div id="file-list" class="space-y-2"></div>
+                
+                <div class="flex justify-end">
+                    <button type="submit" id="submit-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" disabled>
+                        Upload Files
                     </button>
-                </form>
-            </div>
-        </div>
-        
-        <!-- Loading Container -->
-        <div class="loading-container hidden">
-            <div id="loading-text" class="text-lg font-semibold text-gray-800 mb-4">
-                Underwriting with AI Agent
-            </div>
-            <div class="status-list space-y-2 mt-4 max-h-60 overflow-y-auto">
-                <!-- Status updates will be inserted here -->
-            </div>
-        </div>
-        
-        <!-- Results Section -->
-        <div class="results-section hidden" id="results-section">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Analysis Results</h2>
-            
-            <!-- Tabs -->
-            <div class="results-tabs mb-4 border-b border-gray-200">
-                <button class="tab-btn active px-4 py-2 font-semibold text-blue-600 border-b-2 border-blue-600" data-tab="summary">Summary</button>
-                <button class="tab-btn px-4 py-2 font-semibold text-gray-500 hover:text-gray-700" data-tab="financial">Financial Summary</button>
-                <button class="tab-btn px-4 py-2 font-semibold text-gray-500 hover:text-gray-700" data-tab="financials">Credit Decision</button>
-                <button class="tab-btn px-4 py-2 font-semibold text-gray-500 hover:text-gray-700" data-tab="raw">Raw JSON</button>
+                </div>
+            </form>
+        </section>
+
+        <div id="upload-status" class="hidden rounded-lg p-4 mb-6"></div>
+
+        <!-- Processing Status Section -->
+        <section id="processing-section" class="hidden bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center">
+                    <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+                    <h2 class="text-xl font-semibold text-gray-800">Processing Documents</h2>
+                </div>
+                <div class="text-xs text-gray-500 bg-gray-100 rounded-full px-3 py-1">
+                    Provider: <span id="provider-display" class="font-medium">OpenAI</span>
+                </div>
             </div>
             
-            <!-- Tab Content -->
-            <div class="tab-content">
-                <!-- Summary Tab -->
-                <div id="summary-tab" class="tab-pane"></div>
-
-                <!-- Add Financial Summary Tab -->
-                <div id="financial-tab" class="tab-pane hidden">
-                    <!-- Content will be populated by JavaScript -->
-                    <div class="space-y-6">
-                        <!-- Daily Balance Chart -->
-                        <div class="bg-white rounded-xl shadow-sm p-6">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Daily Balance Trend</h3>
-                            <div class="h-[400px]">
-                                <canvas id="dailyBalanceChart"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- Monthly Balance Details -->
-                        <div class="bg-white rounded-xl shadow-sm p-6">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Monthly Balance Details</h3>
-                            <div id="monthlyBalanceTable"></div>
-                        </div>
-
-                        <!-- Monthly Cash Flow -->
-                        <div class="bg-white rounded-xl shadow-sm p-6">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Monthly Cash Flow Summary</h3>
-                            <div id="monthlyCashFlow"></div>
-                        </div>
+            <div class="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 mb-6 border-l-4 border-blue-500 shadow-sm current-status-container">
+                <div class="flex items-center">
+                    <div class="status-icon">
+                        <svg class="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
                     </div>
-                </div>
-
-                <!-- Credit Decision Tab (formerly Financial Analysis) -->
-                <div id="financials-tab" class="tab-pane hidden">
-                    <div class="space-y-6">
-                        <!-- Term Loan Product -->
-                        <div id="term-loan-section" class="bg-white rounded-lg shadow p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-semibold text-gray-800">Term Loan</h3>
-                                <div id="term-loan-status"></div>
-                            </div>
-                            <div id="term-loan-content"></div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-center">
+                            <p class="text-sm text-gray-600">Current Status:</p>
+                            <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full status-badge">Active</span>
                         </div>
-
-                        <!-- Accounts Payable Product -->
-                        <div id="accounts-payable-section" class="bg-white rounded-lg shadow p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-semibold text-gray-800">Accounts Payable Financing</h3>
-                                <div id="accounts-payable-status"></div>
-                            </div>
-                            <div id="accounts-payable-content"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Raw JSON Tab -->
-                <div id="raw-tab" class="tab-pane hidden">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold text-gray-800">Raw JSON Data</h3>
-                        <button id="copy-json" class="flex items-center px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                            Copy JSON
-                        </button>
-                    </div>
-                    <div id="results-content" class="bg-gray-100 rounded-lg p-4 font-mono text-sm overflow-x-auto"></div>
-                </div>
-            </div>
-        </div>
-
-        
-
-        <!-- Add the modal -->
-        <div id="jsonLoaderModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-            <div class="relative top-20 mx-auto p-5 border w-3/4 shadow-lg rounded-md bg-white">
-                <div class="mt-3">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-2">Paste JSON Data</h3>
-                    <textarea id="jsonInput" class="w-full h-64 p-2 border rounded-md font-mono text-sm" 
-                        placeholder="Paste your JSON here..."></textarea>
-                    <div class="mt-4 flex justify-end space-x-3">
-                        <button id="cancelJsonLoad" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg">
-                            Cancel
-                        </button>
-                        <button id="loadJson" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg">
-                            Load
-                        </button>
+                        <p id="current-status" class="font-semibold text-blue-800">Initializing...</p>
                     </div>
                 </div>
             </div>
-        </div>
+            
+            <div class="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                <div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+                    <h3 class="text-sm font-medium text-gray-700">Progress Updates</h3>
+                    <div class="flex items-center">
+                        <span class="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span>
+                        <span class="text-xs text-gray-500 mr-3">Complete</span>
+                        <span class="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1"></span>
+                        <span class="text-xs text-gray-500">In Progress</span>
+                    </div>
+                </div>
+                <div id="status-updates" class="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                    <!-- Status updates will be inserted here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Section will be added in the next step -->
     </div>
-    
+
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html> 

@@ -134,7 +134,8 @@ def underwrite():
     file_paths = request.json.get('file_paths', [])
     merged_files = request.json.get('merged_files', {})  # New parameter from upload
     provider = request.json.get('provider')
-    
+    document_types = request.json.get('document_types', {})
+
     logger.info(f"Debug mode: {debug_mode}")
     logger.info(f"File paths: {file_paths}")
     logger.info(f"Merged files: {merged_files}")
@@ -150,15 +151,31 @@ def underwrite():
         if provider:
             try:
                 provider_value = provider.lower()
-                provider = LLMProvider(provider_value)
+                provider_enum = LLMProvider(provider_value)  # Keep enum version for LLM creation
                 
                 # Pass the provider to merge_pdfs_by_type
-                merged_files = content_service.merge_pdfs_by_type(file_paths, provider=provider)
+               # merged_files = content_service.merge_pdfs_by_type(file_paths, provider=provider_enum)
                 
                 analysis_llm = LLMFactory.create_llm(
-                    provider=provider,
+                    provider=provider_enum,
                     model_type=None  # Use default model type
                 )
+                
+                # Store string version in master_response
+                master_response = {
+                    "provider": provider_value,  # Store string value, not enum
+                    "metrics": {},
+                    "analysis": {
+                        "bank_statements": {},
+                        "tax_returns": {}
+                    },
+                    "document_types": {
+                        "has_bank_statements": False,
+                        "has_tax_returns": False
+                    },
+                    "loan_recommendations": []
+                }
+                
             except ValueError as e:
                 logger.error(f"Invalid configuration error: {str(e)}")
                 return jsonify({
@@ -166,23 +183,22 @@ def underwrite():
                 }), 400
         else:
             analysis_llm = LLMFactory.create_llm()
+            master_response = {
+                "provider": Config.DEFAULT_PROVIDER.value,  # Store string value of default provider
+                "metrics": {},
+                "analysis": {
+                    "bank_statements": {},
+                    "tax_returns": {}
+                },
+                "document_types": {
+                    "has_bank_statements": False,
+                    "has_tax_returns": False
+                },
+                "loan_recommendations": []
+            }
         
         set_llm(analysis_llm)
         send_status("llm_setup", "Complete", "LLM initialized successfully")
-
-        # Initialize master response with new structure
-        master_response = {
-            "metrics": {},
-            "analysis": {
-                "bank_statements": {},
-                "tax_returns": {}
-            },
-            "document_types": {
-                "has_bank_statements": False,
-                "has_tax_returns": False
-            },
-            "loan_recommendations": []
-        }
 
         # Process bank statements if present
         if "bank_statements" in merged_files:
@@ -270,7 +286,7 @@ def underwrite():
         # Switch to reasoning LLM for credit analysis
         try:
             reasoning_llm = LLMFactory.create_llm(
-                provider=provider,
+                provider=provider_enum,
                 model_type=ModelType.REASONING
             )
             set_llm(reasoning_llm)
