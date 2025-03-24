@@ -1,207 +1,229 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // DOM Elements
     const form = document.getElementById('upload-form');
-    const fileInput = document.getElementById('pdf-files');
-    const fileNames = document.getElementById('file-names');
+    const fileInput = document.getElementById('file-input');
+    const fileList = document.getElementById('file-list');
     const submitBtn = document.getElementById('submit-btn');
-    const clearBtn = document.getElementById('clear-files');
-    const resultsSection = document.getElementById('results-section');
-    const loadingContainer = document.querySelector('.loading-container');
-    const loadingText = document.getElementById('loading-text');
-    const resultsContent = document.getElementById('results-content');
-    const toggleBtn = document.getElementById('toggle-upload-btn');
-    const uploadContent = document.getElementById('upload-content');
-    const uploadSection = document.querySelector('.upload-section');
-    const openJsonLoaderBtn = document.getElementById('openJsonLoader');
-    const modal = document.getElementById('jsonLoaderModal');
-    const cancelBtn = document.getElementById('cancelJsonLoad');
-    const loadBtn = document.getElementById('loadJson');
-    const jsonInput = document.getElementById('jsonInput');
+    const fileDropArea = document.getElementById('file-drop-area');
+    const uploadStatus = document.getElementById('upload-status');
+    const processingSection = document.getElementById('processing-section');
+    const statusUpdates = document.getElementById('status-updates');
+    const currentStatus = document.getElementById('current-status');
     
-    console.log('Setting up JSON loader...');
+    // SSE connection
+    let eventSource = null;
     
-    // Log if we found all elements
-    console.log('Found elements:', {
-        openJsonLoaderBtn: !!openJsonLoaderBtn,
-        modal: !!modal,
-        cancelBtn: !!cancelBtn,
-        loadBtn: !!loadBtn,
-        jsonInput: !!jsonInput
-    });
-    
-    // Toggle upload section
-    function toggleUploadSection() {
-        uploadContent.classList.toggle('hidden');
-        const icon = toggleBtn.querySelector('.toggle-icon');
-        icon.textContent = uploadContent.classList.contains('hidden') ? '▼' : '▲';
-    }
-    
-    toggleBtn.addEventListener('click', toggleUploadSection);
-    
-    // Selected files storage
+    // Array to store selected files
     let selectedFiles = [];
     
-    // Add status list to loading container
-    const statusList = document.createElement('div');
-    statusList.className = 'status-list';
-    loadingContainer.appendChild(statusList);
-    
-    // Handle file selection
+    // File input change handler
     fileInput.addEventListener('change', function(e) {
-        const files = Array.from(e.target.files);
-        
-        // Add new files to our array
-        files.forEach(file => {
-            if (file.type === 'application/pdf') {
-                selectedFiles.push(file);
-            }
-        });
-        
-        // Update the UI
-        updateFileList();
+        handleFiles(e.target.files);
     });
     
-    // Handle clearing files
-    clearBtn.addEventListener('click', async function() {
-        // Clear the file input
-        fileInput.value = '';
+    // Drag and drop handlers
+    fileDropArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileDropArea.classList.add('border-blue-500', 'bg-blue-50');
+    });
+    
+    fileDropArea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileDropArea.classList.remove('border-blue-500', 'bg-blue-50');
+    });
+    
+    fileDropArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileDropArea.classList.remove('border-blue-500', 'bg-blue-50');
         
-        // Clear selected files array
-        selectedFiles = [];
-        
-        // Update UI
-        updateFileList();
-        
-        // Hide results section
-        resultsSection.style.display = 'none';
-        resultsContent.innerHTML = '';
-        
-        // Clear uploaded files on the server
-        try {
-            const response = await fetch('/clear-uploads', {
-                method: 'POST'
-            });
-            
-            if (!response.ok) {
-                console.error('Failed to clear uploaded files on server');
-            }
-        } catch (error) {
-            console.error('Error clearing uploads:', error);
+        if (e.dataTransfer.files.length > 0) {
+            handleFiles(e.dataTransfer.files);
         }
     });
     
-    // Update the file list in the UI
-    function updateFileList() {
-        fileNames.innerHTML = '';
+    // Fix for the browse functionality
+    // Find the browse span and add a specific click handler
+    const browseSpan = fileDropArea.querySelector('span');
+    if (browseSpan) {
+        browseSpan.addEventListener('click', function(e) {
+            e.stopPropagation(); // Stop event bubbling
+            fileInput.click();
+        });
         
-        if (selectedFiles.length === 0) {
-            fileNames.style.display = 'none';
-            clearBtn.disabled = true;
+        // Add cursor pointer to make it obviously clickable
+        browseSpan.style.cursor = 'pointer';
+    }
+    
+    // Ensure the entire drop area is still clickable
+    fileDropArea.addEventListener('click', function() {
+        fileInput.click();
+    });
+    
+    // Process selected files
+    function handleFiles(files) {
+        const pdfFiles = Array.from(files).filter(file => 
+            file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+        );
+        
+        if (pdfFiles.length === 0) {
+            showUploadStatus('Please select PDF files only.', 'error');
             return;
         }
         
-        fileNames.style.display = 'block';
-        clearBtn.disabled = false;
-        
-        selectedFiles.forEach((file, index) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            
-            const fileName = document.createElement('span');
-            fileName.textContent = file.name;
-            
-            const removeBtn = document.createElement('span');
-            removeBtn.className = 'remove-file';
-            removeBtn.textContent = '×';
-            removeBtn.addEventListener('click', function() {
-                selectedFiles.splice(index, 1);
-                updateFileList();
-            });
-            
-            fileItem.appendChild(fileName);
-            fileItem.appendChild(removeBtn);
-            fileNames.appendChild(fileItem);
-        });
-        
-        // Enable/disable submit button based on file selection
+        selectedFiles = pdfFiles;
+        updateFileList();
         submitBtn.disabled = selectedFiles.length === 0;
     }
     
-    // Initialize clear button state
-    clearBtn.disabled = true;
+    // Update file list in UI
+    function updateFileList() {
+        fileList.innerHTML = '';
+        
+        selectedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
+            
+            fileItem.innerHTML = `
+                <div class="flex items-center">
+                    <svg class="w-4 h-4 mr-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"></path>
+                    </svg>
+                    <span class="text-sm truncate max-w-xs">${file.name}</span>
+                </div>
+                <button type="button" class="text-red-500 hover:text-red-700" data-index="${index}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            `;
+            
+            fileList.appendChild(fileItem);
+        });
+        
+        // Add click listeners to remove buttons
+        document.querySelectorAll('#file-list button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                removeFile(index);
+            });
+        });
+    }
     
-    // Debug log to check if form is found
-    console.log('Form element found:', !!form);
-
-    if (form) {
-        // Handle form submission
+    // Remove file at specific index
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        updateFileList();
+        submitBtn.disabled = selectedFiles.length === 0;
+    }
+    
+    // Form submission handler
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
-            console.log('Form submitted');
-
-            // Clear previous results and status
-            resultsSection.classList.add('hidden');
-            resultsContent.innerHTML = '';
             
-            const statusList = document.querySelector('.status-list');
-            statusList.innerHTML = ''; // Clear previous status messages
-
-            // Show loading container
-            loadingContainer.classList.remove('hidden');
-
-            // Disable submit button
-            submitBtn.disabled = true;
-
-            // Hide the upload section when underwriting starts
-            const uploadContent = document.getElementById('upload-content');
-            uploadContent.classList.add('hidden');
-            const toggleBtn = document.getElementById('toggle-upload-btn');
-            if (toggleBtn) {
-                const icon = toggleBtn.querySelector('.toggle-icon');
-                if (icon) icon.textContent = '▼';
-            }
-
-            // Start listening for status updates BEFORE making the request
-            const eventSource = new EventSource('/status');
+        if (selectedFiles.length === 0) {
+            showUploadStatus('Please select at least one file.', 'error');
+            return;
+        }
+        
+        // Disable submit button during upload
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Uploading...
+        `;
+        
+        try {
+            showUploadStatus('Uploading files...', 'info');
             
-            eventSource.onmessage = function(event) {
-                try {
-                    const status = JSON.parse(event.data);
-                    updateStatus(status);
-                    
-                    // If we receive a "complete" or "error" status, close the connection
-                    if (status.status === 'Success' || status.status === 'Error') {
-                        eventSource.close();
-                    }
-                } catch (error) {
-                    console.error('Error parsing status update:', error);
-                }
-            };
-
-            try {
-                // First, upload the files
-                const uploadedFiles = await uploadFiles(selectedFiles);
-                console.log('Files uploaded:', uploadedFiles);
-
-                // Then process them with the underwrite endpoint
+            const formData = new FormData();
+            
+            // Add provider to form data
                 const provider = document.getElementById('provider').value;
+            formData.append('provider', provider);
+            
+            // Add debug flag
                 const debugMode = document.getElementById('debug').checked;
+            formData.append('debug', debugMode);
+            
+            // Add files to form data
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            console.log('Starting upload with provider:', provider);
+            
+            // Send the form data to the server
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                console.log('Upload successful:', result);
+                showUploadStatus('Files uploaded successfully. Starting analysis...', 'success');
                 
-                console.log('Sending underwrite request:', {
-                    file_paths: uploadedFiles,
-                    provider: provider,
+                // Show processing section with animation
+                processingSection.classList.remove('hidden');
+                processingSection.style.opacity = '0';
+                processingSection.style.transform = 'translateY(10px)';
+                setTimeout(() => {
+                    processingSection.style.transition = 'opacity 300ms, transform 300ms';
+                    processingSection.style.opacity = '1';
+                    processingSection.style.transform = 'translateY(0)';
+                }, 10);
+                
+                // Start SSE connection for status updates
+                connectToStatusEvents();
+                
+                // Continue with underwrite request
+                processUnderwrite(result, provider, debugMode);
+            } else {
+                console.error('Upload failed:', result);
+                showUploadStatus(`Upload failed: ${result.error || 'Unknown error'}`, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Upload Files';
+            }
+        } catch (error) {
+            console.error('Error during upload:', error);
+            showUploadStatus(`Error during upload: ${error.message}`, 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Upload Files';
+        }
+    });
+    
+    // Process the underwrite request
+    async function processUnderwrite(uploadResult, provider, debugMode) {
+        try {
+            // Prepare request for underwrite endpoint
+                const requestData = {
+                file_paths: uploadResult.original_files,
+                merged_files: uploadResult.merged_files,
+                document_types: {
+                    // Include the classification results from the upload process
+                    bank_statements: uploadResult.summary.bank_statements,
+                    tax_returns: uploadResult.summary.tax_returns
+                },
+                provider: provider,
                     debug: debugMode
-                });
+                };
+                
+                console.log('Sending underwrite request:', requestData);
 
+            // Send the request to the underwrite endpoint
                 const response = await fetch('/underwrite', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        file_paths: uploadedFiles,
-                        provider: provider.toLowerCase(),
-                        debug: debugMode
-                    })
+                    body: JSON.stringify(requestData)
                 });
 
                 if (!response.ok) {
@@ -211,875 +233,1144 @@ document.addEventListener('DOMContentLoaded', function() {
                 const result = await response.json();
                 console.log('Underwrite response:', result);
 
-                // Display results
-                displayResults(result);
-
-            } catch (error) {
-                console.error('Error during underwriting:', error);
-
-                // Show error in results section
-                resultsSection.classList.remove('hidden');
-                resultsContent.innerHTML = `
-                    <div class="error bg-red-50 border border-red-200 rounded-lg p-4">
-                        <h3 class="text-red-800 font-semibold mb-2">Error</h3>
-                        <p class="text-red-600">${error.message}</p>
-                    </div>
-                `;
-
-            } finally {
-                // Re-enable submit button
-                submitBtn.disabled = false;
-                
-                // Hide loading container only after we're done with everything
-                loadingContainer.classList.add('hidden');
-                
-                // Close the event source if it hasn't been closed already
-                if (eventSource.readyState !== EventSource.CLOSED) {
-                    eventSource.close();
-                }
-            }
-        });
-    } else {
-        console.error('Upload form not found!');
-    }
-
-    // Function to upload files
-    async function uploadFiles(files) {
-        console.log('Uploading files:', files);
-        const formData = new FormData();
-        
-        files.forEach(file => {
-            formData.append('files', file);
-        });
-        
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            throw new Error(`File upload failed: ${response.status} ${response.statusText}`);
+            // Close SSE connection
+            disconnectFromStatusEvents();
+            
+            // Hide processing section
+            processingSection.classList.add('hidden');
+            
+            // Display the results
+            showUploadStatus('Analysis complete!', 'success');
+            
+            // Re-enable submit button
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Upload Files';
+            
+            // Display results after analysis completes
+            displayResults(result);
+        } catch (error) {
+            console.error('Error during underwriting:', error);
+            
+            showUploadStatus(`Error during analysis: ${error.message}`, 'error');
+            
+            // Close SSE connection
+            disconnectFromStatusEvents();
+            
+            // Re-enable submit button
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Upload Files';
         }
-        
-        const result = await response.json();
-        return result.file_paths;
     }
     
-    // Function to update status display
-    function updateStatus(status) {
-        const statusList = document.querySelector('.status-list');
-        if (!statusList) return;
-
-        // Try to find existing status item for this step
-        let statusItem = Array.from(statusList.children).find(
-            item => item.getAttribute('data-step') === status.step
-        );
+    // Connect to SSE status events
+    function connectToStatusEvents() {
+        // Close any existing connection
+        disconnectFromStatusEvents();
         
-        // If no existing item, create new one
-        if (!statusItem) {
-            statusItem = document.createElement('div');
-            statusItem.setAttribute('data-step', status.step);
-            statusItem.className = 'flex items-center p-4 bg-white rounded-lg shadow-sm border border-gray-100 animate-fade-in';
-            statusList.appendChild(statusItem);
-        }
+        // Clear existing status updates
+        statusUpdates.innerHTML = '';
+        currentStatus.textContent = 'Initializing...';
         
-        // Determine status color and icon
-        let statusColor = 'blue';
-        let icon = '';
+        // Display selected provider
+        document.getElementById('provider-display').textContent = document.getElementById('provider').value;
         
-        switch(status.status.toLowerCase()) {
-            case 'complete':
-                statusColor = 'green';
-                icon = `<svg class="w-5 h-5 text-green-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                </svg>`;
-                break;
-            case 'error':
-                statusColor = 'red';
-                icon = `<svg class="w-5 h-5 text-red-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>`;
-                break;
-            default:
-                icon = `<svg class="w-5 h-5 text-blue-500 mr-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>`;
-        }
+        // Connect to the status endpoint
+        eventSource = new EventSource('/status');
         
-        statusItem.innerHTML = `
-            ${icon}
-            <div class="flex-1">
-                <div class="flex items-center justify-between">
-                    <span class="font-medium text-gray-800">${status.step}</span>
-                    <span class="text-sm text-${statusColor}-600 font-medium">${status.status}</span>
-                </div>
-                ${status.details ? `<p class="text-sm text-gray-600 mt-1">${status.details}</p>` : ''}
-            </div>
-        `;
-
-        // Scroll to the bottom of the status list
-        statusList.scrollTop = statusList.scrollHeight;
-    }
-
-    // Add tab functionality
-    document.querySelectorAll('.tab-btn').forEach(button => {
-        button.addEventListener('click', handleTabClick);
-    });
-
-    // Initialize copy button if it exists
-    initializeJsonCopy();
-
-    // Open modal
-    openJsonLoaderBtn.addEventListener('click', () => {
-        console.log('Opening modal');
-        modal.classList.remove('hidden');
-    });
-
-    // Close modal
-    cancelBtn.addEventListener('click', () => {
-        console.log('Canceling');
-        modal.classList.add('hidden');
-        jsonInput.value = '';
-    });
-
-    // Close modal if clicking outside
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.classList.add('hidden');
-            jsonInput.value = '';
-        }
-    });
-
-    // Load JSON
-    loadBtn.addEventListener('click', () => {
-        console.log('Load button clicked');
-        const inputValue = jsonInput.value;
-        console.log('Input value:', inputValue);
-        
-        try {
-            const jsonData = JSON.parse(inputValue);
-            console.log('Parsed JSON:', jsonData);
-            
-            // Make sure results section is visible
-            const resultsSection = document.getElementById('results-section');
-            if (resultsSection) {
-                resultsSection.classList.remove('hidden');
+        // Handle incoming messages
+        eventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('Status update received:', data);
+                
+                // Update status
+                updateStatus(data);
+            } catch (error) {
+                console.error('Error parsing status update:', error, event.data);
             }
-            
-            displayResults(jsonData);
-            modal.classList.add('hidden');
-            jsonInput.value = '';
-        } catch (e) {
-            console.error('JSON parse error:', e);
-            alert('Invalid JSON format. Please check your input.');
-        }
-    });
-});
-
-// Define the initializeJsonCopy function
-function initializeJsonCopy() {
-    const copyButton = document.getElementById('copy-json');
-    if (!copyButton) return;
-
-    copyButton.addEventListener('click', async () => {
-        // Get the pre element inside the raw-tab that contains the JSON
-        const jsonContent = document.querySelector('#raw-tab pre');
+        };
         
-        if (!jsonContent) {
-            console.error('JSON content element not found');
+        // Handle errors
+        eventSource.onerror = function(error) {
+            console.error('SSE connection error:', error);
+            disconnectFromStatusEvents();
+        };
+    }
+    
+    // Disconnect from SSE events
+    function disconnectFromStatusEvents() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    }
+    
+    // Update status with SSE data
+    function updateStatus(data) {
+        // Important: Server sends 'details' instead of 'message'
+        const message = data.details || 'Processing...';
+        
+        // Update current status text
+        currentStatus.textContent = message;
+        
+        // Get status container elements
+        const statusContainer = document.querySelector('.current-status-container');
+        const statusBadge = document.querySelector('.status-badge');
+        const statusIconElement = document.querySelector('.status-icon');
+        
+        // Update badge and styling based on status
+        if (data.status === 'Complete' || data.status === 'Success') {
+            // Update to completed state
+            statusBadge.textContent = 'Complete';
+            statusBadge.className = 'text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full status-badge';
+            statusContainer.className = 'bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-4 mb-6 border-l-4 border-green-500 shadow-sm current-status-container';
+            statusIconElement.innerHTML = `
+                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+            `;
+            currentStatus.className = 'font-semibold text-green-800';
+        } else if (data.status === 'Error') {
+            // Update to error state
+            statusBadge.textContent = 'Error';
+            statusBadge.className = 'text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full status-badge';
+            statusContainer.className = 'bg-gradient-to-r from-red-50 to-red-100 rounded-lg p-4 mb-6 border-l-4 border-red-500 shadow-sm current-status-container';
+            statusIconElement.innerHTML = `
+                <svg class="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+            `;
+            currentStatus.className = 'font-semibold text-red-800';
+        } else {
+            // Default processing state (blue)
+            statusBadge.textContent = 'Active';
+            statusBadge.className = 'text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full status-badge';
+            statusContainer.className = 'bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 mb-6 border-l-4 border-blue-500 shadow-sm current-status-container';
+            statusIconElement.innerHTML = `
+                <svg class="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+            `;
+            currentStatus.className = 'font-semibold text-blue-800';
+        }
+        
+        // Create status item
+        const statusItem = document.createElement('div');
+        
+        // Determine icon and color based on status value
+        let statusColor, statusIconSvg;
+        
+        if (data.status === 'Complete' || data.status === 'Success') {
+            statusColor = 'green';
+            statusIconSvg = `<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>`;
+        } else if (data.status === 'Error') {
+            statusColor = 'red';
+            statusIconSvg = `<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>`;
+        } else {
+            // Default case for "Processing" or any other status
+            statusColor = 'blue';
+            statusIconSvg = `<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>`;
+        }
+        
+        // Get current timestamp
+        const timestamp = new Date().toLocaleTimeString();
+        
+        // Create a data attribute to help with step tracking
+        const stepKey = data.step || 'unknown';
+        
+        // Check if we already have an item for this step
+        const existingItem = document.querySelector(`[data-step="${stepKey}"]`);
+        if (existingItem) {
+            // Update existing item instead of creating a new one
+            existingItem.className = `p-4 bg-white hover:bg-${statusColor}-50 transition-colors duration-150`;
+            existingItem.innerHTML = `
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 mr-3">
+                        ${statusIconSvg}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start">
+                            <p class="font-medium text-${statusColor}-700">${data.step || 'Processing'}</p>
+                            <span class="text-xs text-gray-500">${timestamp}</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">${message}</p>
+                        <p class="text-xs text-${statusColor}-600 mt-1">${data.status || ''}</p>
+                        </div>
+                    </div>
+            `;
             return;
         }
         
-        try {
-            // Get the text content and format it
-            const jsonText = jsonContent.textContent;
-            await navigator.clipboard.writeText(jsonText);
-            
-            // Update button to show success state
-            const originalContent = copyButton.innerHTML;
-            copyButton.innerHTML = `
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                Copied!
-            `;
-            copyButton.classList.remove('bg-blue-50', 'text-blue-600');
-            copyButton.classList.add('bg-green-50', 'text-green-600');
-            
-            // Reset button after 2 seconds
-            setTimeout(() => {
-                copyButton.innerHTML = `
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy JSON
-                `;
-                copyButton.classList.remove('bg-green-50', 'text-green-600');
-                copyButton.classList.add('bg-blue-50', 'text-blue-600');
-            }, 2000);
-            
-        } catch (err) {
-            console.error('Failed to copy JSON:', err);
-            
-            // Show error state
-            copyButton.innerHTML = `
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Failed to copy
-            `;
-            copyButton.classList.remove('bg-blue-50', 'text-blue-600');
-            copyButton.classList.add('bg-red-50', 'text-red-600');
-            
-            // Reset button after 2 seconds
-            setTimeout(() => {
-                copyButton.innerHTML = `
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy JSON
-                `;
-                copyButton.classList.remove('bg-red-50', 'text-red-600');
-                copyButton.classList.add('bg-blue-50', 'text-blue-600');
-            }, 2000);
-        }
-    });
-}
-
-const ResultsState = {
-    CONTINUITY_ERROR: 'CONTINUITY_ERROR',
-    SUCCESS: 'SUCCESS',
-    ERROR: 'ERROR'
-};
-
-function determineResultsState(response) {
-    if (!response) return ResultsState.ERROR;
-    
-    const continuityAnalysis = safeAccess(response, 'metrics.statement_continuity.analysis');
-    if (continuityAnalysis && !continuityAnalysis.is_contiguous) {
-        return ResultsState.CONTINUITY_ERROR;
-    }
-    
-    return ResultsState.SUCCESS;
-}
-
-function displayResults(response) {
-    console.log('Response received:', response);
-
-    const resultsSection = document.getElementById('results-section');
-    if (!resultsSection) {
-        console.error('Results section not found');
-        return;
-    }
-
-    // Make sure results section is visible
-    resultsSection.classList.remove('hidden');
-
-    // Update Summary tab
-    const summaryTab = document.getElementById('summary-tab');
-    if (summaryTab) {
-        const recommendations = safeAccess(response, 'loan_recommendations', []);
-        const termLoanRec = recommendations.find(rec => rec.product_type === 'term_loan') || {};
-        const accountsPayableRec = recommendations.find(rec => rec.product_type === 'accounts_payable') || {};
-
-        summaryTab.innerHTML = `
-            <div class="space-y-6">
-                <!-- Term Loan Summary Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-xl font-bold text-gray-900">Term Loan</h2>
-                        <span class="px-4 py-2 rounded-full text-sm font-semibold ${
-                            termLoanRec?.approval_decision 
-                            ? 'bg-green-100 text-green-800 border border-green-200' 
-                            : 'bg-red-100 text-red-800 border border-red-200'
-                        }">
-                            ${termLoanRec?.approval_decision ? 'Approved' : 'Not Approved'}
-                        </span>
-                    </div>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div class="p-4 bg-gray-50 rounded-lg">
-                            <h3 class="font-semibold mb-2">Maximum Loan Amount</h3>
-                            <p class="text-2xl font-bold">$${formatNumber(termLoanRec?.max_loan_amount)}</p>
+        // If no existing item, create new one
+        statusItem.className = `p-4 bg-white hover:bg-${statusColor}-50 transition-colors duration-150`;
+        statusItem.setAttribute('data-step', stepKey);
+        
+        // Create status content
+        statusItem.innerHTML = `
+            <div class="flex items-start">
+                <div class="flex-shrink-0 mr-3">
+                    ${statusIconSvg}
                         </div>
-                        <div class="p-4 bg-gray-50 rounded-lg">
-                            <h3 class="font-semibold mb-2">Monthly Payment</h3>
-                            <p class="text-2xl font-bold">$${formatNumber(termLoanRec?.max_monthly_payment_amount)}</p>
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-start">
+                        <p class="font-medium text-${statusColor}-700">${data.step || 'Processing'}</p>
+                        <span class="text-xs text-gray-500">${timestamp}</span>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Accounts Payable Summary Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-xl font-bold text-gray-900">Accounts Payable Financing</h2>
-                        <span class="px-4 py-2 rounded-full text-sm font-semibold ${
-                            accountsPayableRec?.approval_decision 
-                            ? 'bg-green-100 text-green-800 border border-green-200' 
-                            : 'bg-red-100 text-red-800 border border-red-200'
-                        }">
-                            ${accountsPayableRec?.approval_decision ? 'Approved' : 'Not Approved'}
-                        </span>
-                    </div>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div class="p-4 bg-gray-50 rounded-lg">
-                            <h3 class="font-semibold mb-2">Maximum Financing Amount</h3>
-                            <p class="text-2xl font-bold">$${formatNumber(accountsPayableRec?.max_loan_amount)}</p>
-                        </div>
-                        <div class="p-4 bg-gray-50 rounded-lg">
-                            <h3 class="font-semibold mb-2">Maximum Draw Amount</h3>
-                            <p class="text-2xl font-bold">$${formatNumber(accountsPayableRec?.max_monthly_payment_amount)}</p>
-                        </div>
-                    </div>
+                    <p class="text-sm text-gray-600 mt-1">${message}</p>
+                    <p class="text-xs text-${statusColor}-600 mt-1">${data.status || ''}</p>
                 </div>
             </div>
-        `;
-    }
-
-    // Update Credit Decision tab
-    const financialsTab = document.getElementById('financials-tab');
-    if (financialsTab) {
-        const recommendations = safeAccess(response, 'loan_recommendations', []);
-        const termLoanRec = recommendations.find(rec => rec.product_type === 'term_loan');
-        const accountsPayableRec = recommendations.find(rec => rec.product_type === 'accounts_payable');
-
-        financialsTab.innerHTML = `
-            <div class="space-y-8">
-                <!-- Term Loan Section -->
-                ${renderProductSection('Term Loan', termLoanRec)}
-
-                <!-- Accounts Payable Section -->
-                ${renderProductSection('Accounts Payable Financing', accountsPayableRec)}
-            </div>
-        `;
-    }
-
-    // Update other tabs...
-    updateFinancialTab(response);
-    
-    // Update Raw JSON tab
-    const rawTab = document.getElementById('raw-tab');
-    if (rawTab) {
-        rawTab.innerHTML = `
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold text-gray-800">Raw JSON Data</h3>
-                <button id="copy-json" class="flex items-center px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy JSON
-                </button>
-            </div>
-            <pre class="bg-gray-100 rounded-lg p-4 font-mono text-sm overflow-x-auto whitespace-pre-wrap">${JSON.stringify(response, null, 2)}</pre>
         `;
         
-        initializeJsonCopy();
+        // Add to status updates with animation
+        statusItem.style.opacity = '0';
+        statusItem.style.transform = 'translateY(-10px)';
+        statusUpdates.prepend(statusItem);
+        
+        // Animate in
+        setTimeout(() => {
+            statusItem.style.transition = 'opacity 300ms, transform 300ms';
+            statusItem.style.opacity = '1';
+            statusItem.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Limit number of updates to display
+        if (statusUpdates.children.length > 50) {
+            statusUpdates.removeChild(statusUpdates.lastChild);
+        }
     }
-}
-
-// Helper function for safe object access
-function safeAccess(obj, path, defaultValue = null) {
-    try {
-        return path.split('.').reduce((acc, part) => acc?.[part], obj) ?? defaultValue;
-    } catch (e) {
-        console.warn(`Error accessing path ${path}:`, e);
-        return defaultValue;
+    
+    // Display upload status message
+    function showUploadStatus(message, type = 'info') {
+        uploadStatus.textContent = message;
+        uploadStatus.classList.remove('hidden', 'bg-blue-50', 'bg-green-50', 'bg-red-50', 'text-blue-700', 'text-green-700', 'text-red-700');
+        
+        switch (type) {
+            case 'success':
+                uploadStatus.classList.add('bg-green-50', 'text-green-700');
+                break;
+            case 'error':
+                uploadStatus.classList.add('bg-red-50', 'text-red-700');
+                break;
+            default: // info
+                uploadStatus.classList.add('bg-blue-50', 'text-blue-700');
+                break;
+        }
+        
+        // Automatically hide success messages after 5 seconds
+        if (type === 'success') {
+            setTimeout(() => {
+                uploadStatus.classList.add('hidden');
+            }, 5000);
+        }
     }
-}
 
-// Helper function to format numbers
-function formatNumber(num) {
-    if (num === undefined || num === null) {
-        return '0.00';
-    }
-    return num.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    });
-}
-
-
-// Tab initialization function
-function initializeTabs() {
-    const tabs = document.querySelectorAll('.tab-btn');
-    const tabPanes = document.querySelectorAll('.tab-pane');
-
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            // Remove active class from all tabs
-            tabs.forEach(t => t.classList.remove('active'));
-            // Add active class to clicked tab
-            tab.classList.add('active');
+    // Function to display results after analysis completes
+    function displayResults(responseData) {
+        console.log('Displaying results with data:', responseData);
+        
+        // Create results container if it doesn't exist
+        if (!document.getElementById('results-section')) {
+            const resultsSection = document.createElement('section');
+            resultsSection.id = 'results-section';
+            resultsSection.className = 'mt-8 bg-white rounded-lg shadow-md';
+            resultsSection.innerHTML = `
+                <div class="border-b border-gray-200">
+                    <nav class="flex flex-wrap px-4 py-2">
+                        <button class="tab-button flex items-center justify-center px-5 py-3 m-1 rounded-md bg-blue-50 active-tab" data-tab="summary-tab">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                            <span>Decision Summary</span>
+                </button>
+                        <button class="tab-button flex items-center justify-center px-5 py-3 m-1 rounded-md hover:bg-gray-50" data-tab="financial-tab">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                            </svg>
+                            <span>Financial Summary</span>
+                        </button>
+                        <button class="tab-button flex items-center justify-center px-5 py-3 m-1 rounded-md hover:bg-gray-50" data-tab="credit-tab">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-6-8h6M5 5h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+                            </svg>
+                            <span>Credit Analysis</span>
+                        </button>
+                        <button class="tab-button flex items-center justify-center px-5 py-3 m-1 rounded-md hover:bg-gray-50" data-tab="raw-tab">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                            </svg>
+                            <span>Raw JSON</span>
+                        </button>
+                    </nav>
+            </div>
+                
+                <div class="tab-content p-6" id="summary-tab"></div>
+                <div class="tab-content p-6 hidden" id="financial-tab"></div>
+                <div class="tab-content p-6 hidden" id="credit-tab"></div>
+                <div class="tab-content p-6 hidden" id="raw-tab"></div>
+            `;
             
-            // Hide all tab panes
-            tabPanes.forEach(pane => pane.classList.add('hidden'));
-            // Show the selected tab pane
-            const targetPane = document.getElementById(`${tab.dataset.tab}-tab`);
-            if (targetPane) {
-                targetPane.classList.remove('hidden');
-            }
+            // Insert before processing section
+            document.querySelector('#processing-section').after(resultsSection);
+            
+            // Add tab switching functionality
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', function() {
+                    // Remove active class from all tabs
+                    document.querySelectorAll('.tab-button').forEach(btn => {
+                        btn.classList.remove('active-tab', 'bg-blue-50');
+                        btn.classList.add('hover:bg-gray-50');
+                    });
+                    
+                    // Hide all tab content
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.add('hidden');
+                    });
+                    
+            // Add active class to clicked tab
+                    this.classList.add('active-tab', 'bg-blue-50');
+                    this.classList.remove('hover:bg-gray-50');
+                    
+                    // Show corresponding tab content
+                    const tabId = this.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.remove('hidden');
         });
     });
-
-    // Show summary tab by default
-    const summaryTab = document.querySelector('[data-tab="summary"]');
-    if (summaryTab) {
-        summaryTab.click();
+        }
+        
+        // Update each tab with content
+        updateSummaryTab(responseData);
+        updateFinancialTab(responseData);
+        updateCreditTab(responseData);
+        updateRawTab(responseData);
     }
-}
 
-
-
-
-// Add this CSS to your HTML file or update the existing loading container styles
-document.addEventListener('DOMContentLoaded', function() {
-    // ... existing code ...
-
-    // Update loading container styles
-    const loadingContainer = document.querySelector('.loading-container');
-    loadingContainer.className = 'loading-container hidden bg-white rounded-lg shadow-md p-6 mb-8 max-w-2xl mx-auto';
-    
-    // Update status list styles
-    const statusList = document.querySelector('.status-list');
-    statusList.className = 'status-list space-y-2 mt-4 max-h-60 overflow-y-auto';
-    
-    // Add loading text styles
-    const loadingText = document.getElementById('loading-text');
-    loadingText.className = 'text-xl font-semibold text-gray-800 mb-4';
-});
-
-// Add this to your existing styles or in a <style> tag in your HTML
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-    @keyframes fade-in {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
+    // Tab 1: Decision Summary
+    function updateSummaryTab(data) {
+        const summaryTab = document.getElementById('summary-tab');
+        
+        // Clear previous content
+        summaryTab.innerHTML = '';
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'mb-6';
+        header.innerHTML = `
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Credit Decision Summary</h2>
+            <p class="text-gray-600">Analysis completed at ${new Date().toLocaleString()}</p>
+        `;
+        summaryTab.appendChild(header);
+        
+        // Check if loan_recommendations exists and is an array
+        if (!data.loan_recommendations || !Array.isArray(data.loan_recommendations) || data.loan_recommendations.length === 0) {
+            // Display a message if no loan recommendations are available
+            const noDataMsg = document.createElement('div');
+            noDataMsg.className = 'p-4 bg-yellow-50 border border-yellow-200 rounded-md';
+            noDataMsg.innerHTML = `
+                <p class="text-yellow-700">No loan recommendations available in the response.</p>
+                <p class="text-sm text-gray-600 mt-2">Raw response: ${JSON.stringify(data).substring(0, 150)}...</p>
+            `;
+            summaryTab.appendChild(noDataMsg);
+            return;
+        }
+        
+        // Create container for cards
+        const cardsContainer = document.createElement('div');
+        cardsContainer.className = 'grid grid-cols-1 md:grid-cols-2 gap-6';
+        
+        // Process each product in the loan_recommendations array
+        data.loan_recommendations.forEach(product => {
+            // Convert approval_decision to string and handle null/undefined/boolean values
+            const approvalDecision = typeof product.approval_decision === 'string' 
+                ? product.approval_decision 
+                : (product.approval_decision === true ? 'APPROVED' : 'DECLINED');
+            
+            console.log('Product:', product.product_name, 'Approval decision:', approvalDecision, 'Type:', typeof product.approval_decision);
+            
+            const card = document.createElement('div');
+            card.className = 'border rounded-lg shadow-sm overflow-hidden';
+            
+            // Determine color based on approval
+            let borderColor, bgColor, textColor;
+            if (approvalDecision === 'APPROVED') {
+                borderColor = 'border-green-500';
+                bgColor = 'bg-green-50';
+                textColor = 'text-green-800';
+            } else if (approvalDecision === 'DECLINED') {
+                borderColor = 'border-red-500';
+                bgColor = 'bg-red-50';
+                textColor = 'text-red-800';
+            } else if (approvalDecision === 'MANUAL_REVIEW') {
+                borderColor = 'border-yellow-500';
+                bgColor = 'bg-yellow-50';
+                textColor = 'text-yellow-800';
+            } else {
+                borderColor = 'border-gray-500';
+                bgColor = 'bg-gray-50';
+                textColor = 'text-gray-800';
+            }
+            
+            card.innerHTML = `
+                <div class="px-6 py-4 ${bgColor} border-b ${borderColor}">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-semibold">${product.product_name}</h3>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium ${textColor} ${bgColor}">
+                            ${approvalDecision.replace(/_/g, ' ')}
+                        </span>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="mb-4">
+                        <p class="text-gray-700">
+                            ${product.detailed_analysis ? product.detailed_analysis.substring(0, 200) + '...' : 'No detailed analysis available'}
+                        </p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-sm text-gray-500">Max Loan Amount</p>
+                            <p class="text-lg font-semibold">$${(product.max_loan_amount || 0).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500">Confidence Score</p>
+                            <p class="text-lg font-semibold">${Math.round((product.confidence_score || 0) * 100)}%</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            cardsContainer.appendChild(card);
+        });
+        
+        summaryTab.appendChild(cardsContainer);
     }
-    
-    .animate-fade-in {
-        animation: fade-in 0.3s ease-out forwards;
-    }
-    
-    .status-list::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    .status-list::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 3px;
-    }
-    
-    .status-list::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 3px;
-    }
-    
-    .status-list::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
-`;
-document.head.appendChild(styleSheet);
 
-// Add this function to handle tab clicks
-function handleTabClick(e) {
-    // Get all tab buttons and content panes
-    const tabs = document.querySelectorAll('.tab-btn');
-    const panes = document.querySelectorAll('.tab-pane');
-    
-    // Remove active classes from all tabs
-    tabs.forEach(tab => {
-        tab.classList.remove('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
-        tab.classList.add('text-gray-500');
-    });
-    
-    // Hide all panes
-    panes.forEach(pane => {
-        pane.classList.add('hidden');
-    });
-    
-    // Add active classes to clicked tab
-    e.target.classList.add('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
-    e.target.classList.remove('text-gray-500');
-    
-    // Show corresponding pane
-    const tabId = e.target.getAttribute('data-tab');
-    const pane = document.getElementById(`${tabId}-tab`);
-    if (pane) {
-        pane.classList.remove('hidden');
-    }
-}
-
-// Update Financial Analysis tab with safety checks
-function updateFinancialsTab(response) {
-    const financialsTab = document.getElementById('financials-tab');
-    if (!financialsTab) return;
-
-    const recommendations = safeAccess(response, 'loan_recommendations', []);
-    
-    // Find recommendations for each product
-    const termLoanRec = recommendations.find(rec => rec.product_type === 'term_loan') || {};
-    const accountsPayableRec = recommendations.find(rec => rec.product_type === 'accounts_payable') || {};
-
-    // Update Term Loan section
-    updateProductSection('term-loan', termLoanRec);
-    
-    // Update Accounts Payable section
-    updateProductSection('accounts-payable', accountsPayableRec);
-}
-
-// Add new helper function to render each product section
-function updateProductSection(sectionId, recommendation) {
-    const statusDiv = document.getElementById(`${sectionId}-status`);
-    const contentDiv = document.getElementById(`${sectionId}-content`);
-    
-    if (!statusDiv || !contentDiv) return;
-
-    // Update status pill
-    statusDiv.innerHTML = `
-        <span class="px-4 py-1 rounded-full text-sm font-semibold ${
-            recommendation.approval_decision 
-            ? 'bg-green-100 text-green-800 border border-green-200' 
-            : 'bg-red-100 text-red-800 border border-red-200'
-        }">
-            ${recommendation.approval_decision ? 'Approved' : 'Not Approved'}
-        </span>
+    // Tab 2: Financial Summary
+    function updateFinancialTab(data) {
+        const financialTab = document.getElementById('financial-tab');
+        
+        // Clear previous content
+        financialTab.innerHTML = '';
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'mb-6';
+        header.innerHTML = `
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Financial Summary</h2>
+            <p class="text-gray-600">Analysis of banking activity and financial health</p>
+        `;
+        financialTab.appendChild(header);
+        
+        // Get bank statement analysis data
+        const bankStatementAnalysis = data.analysis?.bank_statements || {};
+        const hasAnalysisData = Object.keys(bankStatementAnalysis).length > 0;
+        
+        if (!hasAnalysisData) {
+            const noDataMsg = document.createElement('div');
+            noDataMsg.className = 'p-4 bg-yellow-50 border border-yellow-200 rounded-md';
+            noDataMsg.innerHTML = `
+                <p class="text-yellow-700">No financial analysis data available.</p>
+                <p class="text-sm text-gray-600 mt-2">Make sure bank statements were analyzed.</p>
+            `;
+            financialTab.appendChild(noDataMsg);
+            return;
+        }
+        
+        // Create layout for financial cards and chart
+        const layout = document.createElement('div');
+        layout.className = 'grid grid-cols-1 lg:grid-cols-3 gap-6';
+        
+        // 1. Daily Balances Chart Card (spans full width on small screens, 2/3 on large)
+        const chartCard = document.createElement('div');
+        chartCard.className = 'border rounded-lg shadow-sm p-6 lg:col-span-2';
+        chartCard.innerHTML = `
+            <h3 class="text-lg font-semibold mb-4">Daily Balance Trend</h3>
+            <div class="h-64">
+                <canvas id="daily-balance-chart"></canvas>
+            </div>
+        `;
+        
+        // 2. Monthly Balances Card
+        const monthlyCard = document.createElement('div');
+        monthlyCard.className = 'border rounded-lg shadow-sm p-6';
+        
+        // Get the closing balances data if available
+        const closingBalances = bankStatementAnalysis.closing_balances || {};
+        
+        // Get key metrics from the first loan recommendation if available
+        const metrics = data.loan_recommendations && data.loan_recommendations.length > 0 
+            ? data.loan_recommendations[0].key_metrics || {} 
+            : {};
+        
+        monthlyCard.innerHTML = `
+            <h3 class="text-lg font-semibold mb-4">Monthly Balances</h3>
+            <div class="space-y-4">
+                <div>
+                    <p class="text-sm text-gray-500">Lowest Monthly Balance</p>
+                    <p class="text-lg font-semibold">$${(metrics.lowest_monthly_balance || 0).toLocaleString()}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500">Average Daily Balance Trend</p>
+                    <p class="text-lg font-semibold">${metrics.average_daily_balance_trend || 'N/A'}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500">Payment Coverage Ratio</p>
+                    <p class="text-lg font-semibold">${(metrics.payment_coverage_ratio || 0).toFixed(2)}</p>
+                </div>
+            </div>
+        `;
+        
+        // 3. Revenue & Expenses Card
+        const revenueCard = document.createElement('div');
+        revenueCard.className = 'border rounded-lg shadow-sm p-6';
+        
+        // Get monthly financials data if available
+        const monthlyFinancials = bankStatementAnalysis.monthly_financials || {};
+        
+        revenueCard.innerHTML = `
+            <h3 class="text-lg font-semibold mb-4">Revenue & Expenses</h3>
+            <div class="space-y-4">
+                <div>
+                    <p class="text-sm text-gray-500">Total Revenue</p>
+                    <p class="text-lg font-semibold text-green-600">$${(monthlyFinancials.total_revenue || 0).toLocaleString()}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500">Total Expenses</p>
+                    <p class="text-lg font-semibold text-red-600">$${(monthlyFinancials.total_expenses || 0).toLocaleString()}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500">Net Cash Flow</p>
+                    <p class="text-lg font-semibold">$${(monthlyFinancials.net_cashflow || 0).toLocaleString()}</p>
+            </div>
+            </div>
+        `;
+        
+        // 4. NSF Card
+        const nsfCard = document.createElement('div');
+        nsfCard.className = 'border rounded-lg shadow-sm p-6';
+        
+        // Get NSF information if available
+        const nsfInfo = bankStatementAnalysis.nsf_information || {};
+        
+        nsfCard.innerHTML = `
+            <h3 class="text-lg font-semibold mb-4">Non-Sufficient Funds</h3>
+            <div class="space-y-4">
+                <div>
+                    <p class="text-sm text-gray-500">Total NSF Incidents</p>
+                    <p class="text-lg font-semibold">${nsfInfo.incident_count || 0}</p>
+                    </div>
+                <div>
+                    <p class="text-sm text-gray-500">Highest NSF Month Count</p>
+                    <p class="text-lg font-semibold">${metrics.highest_nsf_month_count || 0}</p>
+                    </div>
+                <div>
+                    <p class="text-sm text-gray-500">Total NSF Fees</p>
+                    <p class="text-lg font-semibold">$${(nsfInfo.total_fees || 0).toLocaleString()}</p>
+                    </div>
+                    </div>
     `;
-
-    // Update content
-    contentDiv.innerHTML = `
-        <div class="space-y-6">
-            <!-- Loan Details -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Maximum Amount</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_loan_amount || 0)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Monthly Payment</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_monthly_payment_amount || 0)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Confidence Score</p>
-                    <p class="text-lg font-semibold">${((recommendation.confidence_score || 0) * 100).toFixed(1)}%</p>
-                </div>
-            </div>
-
-            <!-- Analysis Details -->
-            <div class="mt-6">
-                <h4 class="font-semibold text-gray-700 mb-2">Analysis</h4>
-                <p class="text-gray-600">${recommendation.detailed_analysis || 'No detailed analysis available.'}</p>
-            </div>
-
-            <!-- Factors Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                <!-- Risk Factors -->
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Risk Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${(recommendation.risk_factors || [])
-                            .map(factor => `<li class="text-red-600">${factor}</li>`)
-                            .join('') || '<li class="text-gray-500">No risk factors identified</li>'}
-                    </ul>
-                </div>
-
-                <!-- Mitigating Factors -->
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Mitigating Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${(recommendation.mitigating_factors || [])
-                            .map(factor => `<li class="text-green-600">${factor}</li>`)
-                            .join('') || '<li class="text-gray-500">No mitigating factors identified</li>'}
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Conditions if Approved -->
-            <div class="mt-6">
-                <h4 class="font-semibold text-gray-700 mb-2">Conditions if Approved</h4>
-                <ul class="list-disc pl-5 space-y-1">
-                    ${(recommendation.conditions_if_approved || [])
-                        .map(condition => `<li class="text-gray-600">${condition}</li>`)
-                        .join('') || '<li class="text-gray-500">No conditions specified</li>'}
-                </ul>
-            </div>
-
-            <!-- Key Metrics -->
-            <div class="mt-6">
-                <h4 class="font-semibold text-gray-700 mb-2">Key Metrics</h4>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="bg-gray-50 rounded-lg p-3">
-                        <p class="text-xs text-gray-500">Payment Coverage</p>
-                        <p class="text-sm font-semibold">${(safeAccess(recommendation, 'key_metrics.payment_coverage_ratio', 0)).toFixed(2)}</p>
-                    </div>
-                    <div class="bg-gray-50 rounded-lg p-3">
-                        <p class="text-xs text-gray-500">Balance Trend</p>
-                        <p class="text-sm font-semibold capitalize">${safeAccess(recommendation, 'key_metrics.average_daily_balance_trend', 'N/A')}</p>
-                    </div>
-                    <div class="bg-gray-50 rounded-lg p-3">
-                        <p class="text-xs text-gray-500">Lowest Monthly Balance</p>
-                        <p class="text-sm font-semibold">$${formatNumber(safeAccess(recommendation, 'key_metrics.lowest_monthly_balance', 0))}</p>
-                    </div>
-                    <div class="bg-gray-50 rounded-lg p-3">
-                        <p class="text-xs text-gray-500">Highest NSF Count</p>
-                        <p class="text-sm font-semibold">${safeAccess(recommendation, 'key_metrics.highest_nsf_month_count', 0)}</p>
-                    </div>
-                </div>
-            </div>
+        
+        // Add all cards to the layout
+        layout.appendChild(chartCard);
+        layout.appendChild(monthlyCard);
+        layout.appendChild(revenueCard);
+        layout.appendChild(nsfCard);
+        
+        financialTab.appendChild(layout);
+        
+        // Create chart if we have daily balance data
+        setTimeout(() => {
+            ensureChartJsLoaded()
+                .then(() => {
+                    if (document.getElementById('daily-balance-chart')) {
+                        createDailyBalanceChart(bankStatementAnalysis.daily_balances || {});
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading Chart.js:', error);
+                    // Add a message in place of the chart
+                    const chartContainer = document.getElementById('daily-balance-chart');
+                    if (chartContainer) {
+                        chartContainer.parentElement.innerHTML = `
+                            <div class="flex items-center justify-center h-64 bg-gray-50 rounded border border-gray-200">
+                                <p class="text-gray-500">Chart could not be loaded</p>
         </div>
     `;
-}
+                    }
+                });
+        }, 100);
+    }
 
-// Update Financial Summary tab with safety checks
-function updateFinancialTab(response) {
-    const financialTab = document.getElementById('financial-tab');
-    if (!financialTab) return;
-
-    const dailyBalances = safeAccess(response, 'metrics.daily_balances.daily_balances', []);
-    const monthlyBalances = safeAccess(response, 'metrics.closing_balances.monthly_closing_balances', []);
-    const monthlyFinancialsData = safeAccess(response, 'metrics.monthly_financials.monthly_data', {});
-    const statistics = safeAccess(response, 'metrics.monthly_financials.statistics', {});
-
-    // Create Daily Balance Chart
-    const chartCanvas = document.getElementById('dailyBalanceChart');
-    if (chartCanvas?.getContext && dailyBalances.length > 0) {
-        const ctx = chartCanvas.getContext('2d');
-        try {
+    // Function to create the daily balance chart
+    function createDailyBalanceChart(dailyBalancesData) {
+        // Extract dates and balances from the data if available
+        let dates = [];
+        let balances = [];
+        
+        // If there's a balances array, use it, otherwise generate sample data
+        if (dailyBalancesData && dailyBalancesData.balances && dailyBalancesData.balances.length > 0) {
+            dailyBalancesData.balances.forEach(item => {
+                dates.push(item.date);
+                balances.push(item.balance);
+            });
+        } else {
+            // Generate sample data
+            const endDate = new Date();
+            for (let i = 29; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(endDate.getDate() - i);
+                dates.push(date.toLocaleDateString());
+                
+                // Generate random balance between 1000 and 5000
+                const balance = Math.floor(Math.random() * 4000) + 1000;
+                balances.push(balance);
+            }
+        }
+        
+        // Create chart
+        const ctx = document.getElementById('daily-balance-chart').getContext('2d');
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: dailyBalances.map(item => item.date),
+                labels: dates,
                     datasets: [{
                         label: 'Daily Balance',
-                        data: dailyBalances.map(item => item.balance),
-                        borderColor: 'rgb(59, 130, 246)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        fill: true,
-                        tension: 0.4
+                    data: balances,
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)', // blue-500 with opacity
+                    borderColor: 'rgb(59, 130, 246)', // blue-500
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `Balance: $${formatNumber(context.raw || 0)}`;
-                                }
+                    scales: {
+                        y: {
+                        beginAtZero: false,
+                        grid: {
+                            drawBorder: false
+                        },
+                            ticks: {
+                                callback: function(value) {
+                                return '$' + value.toLocaleString();
                             }
                         }
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: function(value) {
-                                    return '$' + formatNumber(value);
-                                }
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            maxTicksLimit: 7
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return '$' + context.raw.toLocaleString();
                             }
                         }
                     }
                 }
-            });
-        } catch (error) {
-            console.error('Error creating chart:', error);
-            chartCanvas.parentElement.innerHTML = '<div class="p-4 text-gray-600">Error creating chart</div>';
+            }
+        });
+    }
+
+    // Tab 3: Credit Analysis
+    function updateCreditTab(data) {
+        const creditTab = document.getElementById('credit-tab');
+        
+        // Clear previous content
+        creditTab.innerHTML = '';
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'mb-6';
+        header.innerHTML = `
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Credit Analysis</h2>
+            <p class="text-gray-600">Risk assessment and lending recommendations</p>
+        `;
+        creditTab.appendChild(header);
+        
+        // Check if loan_recommendations exists and is an array
+        if (!data.loan_recommendations || !Array.isArray(data.loan_recommendations) || data.loan_recommendations.length === 0) {
+            // Display a message if no loan recommendations are available
+            const noDataMsg = document.createElement('div');
+            noDataMsg.className = 'p-4 bg-yellow-50 border border-yellow-200 rounded-md';
+            noDataMsg.innerHTML = `
+                <p class="text-yellow-700">No credit analysis data available in the response.</p>
+            `;
+            creditTab.appendChild(noDataMsg);
+            return;
         }
-    }
-
-    // Update Monthly Balance Table
-    const monthlyBalanceTable = document.getElementById('monthlyBalanceTable');
-    if (monthlyBalanceTable) {
-        monthlyBalanceTable.innerHTML = `
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Closing Balance</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verification</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        ${monthlyBalances.length > 0 ? monthlyBalances.map(balance => `
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${balance.month || 'N/A'}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">$${formatNumber(balance.balance || 0)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${balance.verification || 'Unverified'}</td>
-                            </tr>
-                        `).join('') : `
-                            <tr>
-                                <td colspan="3" class="px-6 py-4 text-center text-gray-500">No monthly balance data available</td>
-                            </tr>
-                        `}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    // Update Monthly Cash Flow Summary
-    const monthlyCashFlow = document.getElementById('monthlyCashFlow');
-    if (monthlyCashFlow) {
-        monthlyCashFlow.innerHTML = `
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Monthly Data Table -->
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cash Flow</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            ${Object.entries(monthlyFinancialsData).length > 0 ? 
-                                Object.entries(monthlyFinancialsData).map(([month, data]) => `
-                                    <tr>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${month}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">$${formatNumber(data.revenue || 0)}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">$${formatNumber(data.expenses || 0)}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right ${(data.cashflow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                            $${formatNumber(data.cashflow || 0)}
-                                        </td>
-                                    </tr>
-                                `).join('') : `
-                                    <tr>
-                                        <td colspan="4" class="px-6 py-4 text-center text-gray-500">No monthly financial data available</td>
-                                    </tr>
-                            `}
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Statistics Summary -->
-                <div class="bg-gray-50 rounded-lg p-6">
-                    <h4 class="text-md font-semibold text-gray-800 mb-4">Aggregate Statistics</h4>
-                    <div class="space-y-4">
-                        <div>
-                            <p class="text-sm text-gray-600">Average Monthly Revenue</p>
-                            <p class="text-lg font-semibold">$${formatNumber(safeAccess(statistics, 'revenue.average', 0))}</p>
+        
+        // Create container for product analysis cards
+        const cardsContainer = document.createElement('div');
+        cardsContainer.className = 'space-y-8';
+        
+        // Process each product in the loan_recommendations array
+        data.loan_recommendations.forEach(product => {
+            // Convert approval_decision to string and handle null/undefined/boolean values
+            const approvalDecision = typeof product.approval_decision === 'string' 
+                ? product.approval_decision 
+                : (product.approval_decision === true ? 'APPROVED' : 'DECLINED');
+            
+            const productCard = document.createElement('div');
+            productCard.className = 'border rounded-lg shadow-sm overflow-hidden';
+            
+            // Determine header color based on approval
+            let headerBg, headerText;
+            if (approvalDecision === 'APPROVED') {
+                headerBg = 'bg-green-50';
+                headerText = 'text-green-800';
+            } else if (approvalDecision === 'DECLINED') {
+                headerBg = 'bg-red-50';
+                headerText = 'text-red-800';
+            } else if (approvalDecision === 'MANUAL_REVIEW') {
+                headerBg = 'bg-yellow-50';
+                headerText = 'text-yellow-800';
+            } else {
+                headerBg = 'bg-gray-50';
+                headerText = 'text-gray-800';
+            }
+            
+            productCard.innerHTML = `
+                <div class="px-6 py-4 ${headerBg} border-b">
+                    <h3 class="text-lg font-semibold ${headerText}">${product.product_name}</h3>
+                    <div class="flex items-center mt-1">
+                        <span class="text-sm font-medium">Decision: ${approvalDecision.replace(/_/g, ' ')}</span>
+                        <span class="mx-2">•</span>
+                        <span class="text-sm">Confidence: ${Math.round((product.confidence_score || 0) * 100)}%</span>
                         </div>
-                        <div>
-                            <p class="text-sm text-gray-600">Average Monthly Expenses</p>
-                            <p class="text-lg font-semibold">$${formatNumber(safeAccess(statistics, 'expenses.average', 0))}</p>
                         </div>
-                        <div>
-                            <p class="text-sm text-gray-600">Average Monthly Cash Flow</p>
-                            <p class="text-lg font-semibold ${safeAccess(statistics, 'cashflow.average', 0) >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                $${formatNumber(safeAccess(statistics, 'cashflow.average', 0))}
-                            </p>
+                <div class="p-6">
+                    <!-- Detailed Analysis -->
+                    <div class="mb-6">
+                        <h4 class="text-base font-medium mb-2">Detailed Analysis</h4>
+                        <p class="text-gray-700">${product.detailed_analysis || 'No detailed analysis available'}</p>
                         </div>
-                        <div class="pt-4 border-t border-gray-200">
-                            <p class="text-sm text-gray-600">Standard Deviations</p>
-                            <div class="grid grid-cols-2 gap-4 mt-2">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Risk Factors -->
                                 <div>
-                                    <p class="text-xs text-gray-500">Revenue</p>
-                                    <p class="text-sm font-medium">$${formatNumber(safeAccess(statistics, 'revenue.std_deviation', 0))}</p>
+                            <h4 class="text-base font-medium mb-2 text-red-600">Risk Factors</h4>
+                            ${product.risk_factors && product.risk_factors.length ? `
+                                <ul class="list-disc pl-5 space-y-1">
+                                    ${product.risk_factors.map(factor => `
+                                        <li class="text-gray-700">${factor}</li>
+                                    `).join('')}
+                                </ul>
+                            ` : '<p class="text-gray-500">No risk factors identified</p>'}
                                 </div>
+                        
+                        <!-- Mitigating Factors -->
                                 <div>
-                                    <p class="text-xs text-gray-500">Expenses</p>
-                                    <p class="text-sm font-medium">$${formatNumber(safeAccess(statistics, 'expenses.std_deviation', 0))}</p>
+                            <h4 class="text-base font-medium mb-2 text-green-600">Mitigating Factors</h4>
+                            ${product.mitigating_factors && product.mitigating_factors.length ? `
+                                <ul class="list-disc pl-5 space-y-1">
+                                    ${product.mitigating_factors.map(factor => `
+                                        <li class="text-gray-700">${factor}</li>
+                                    `).join('')}
+                                </ul>
+                            ` : '<p class="text-gray-500">No mitigating factors identified</p>'}
                                 </div>
                             </div>
+                    
+                    <!-- Conditions if Approved -->
+                    ${approvalDecision === 'APPROVED' || approvalDecision === 'MANUAL_REVIEW' ? `
+                        <div class="mt-6">
+                            <h4 class="text-base font-medium mb-2 text-blue-600">Conditions if Approved</h4>
+                            ${product.conditions_if_approved && product.conditions_if_approved.length ? `
+                                <ul class="list-disc pl-5 space-y-1">
+                                    ${product.conditions_if_approved.map(condition => `
+                                        <li class="text-gray-700">${condition}</li>
+                                    `).join('')}
+            </ul>
+                            ` : '<p class="text-gray-500">No specific conditions</p>'}
                         </div>
-                    </div>
-                </div>
+                    ` : ''}
             </div>
         `;
+            
+            cardsContainer.appendChild(productCard);
+        });
+        
+        creditTab.appendChild(cardsContainer);
     }
-}
 
-// Add this helper function to render each product section
-function renderProductSection(productName, recommendation) {
-    if (!recommendation) return '';
+    // Tab 4: Raw JSON
+    function updateRawTab(data) {
+        const rawTab = document.getElementById('raw-tab');
+        
+        // Clear previous content
+        rawTab.innerHTML = '';
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'mb-6 flex justify-between items-center';
+        header.innerHTML = `
+            <h2 class="text-2xl font-bold text-gray-800">Raw JSON Response</h2>
+            <button id="copy-json-btn" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                </svg>
+                Copy JSON
+            </button>
+        `;
+        rawTab.appendChild(header);
+        
+        // JSON display
+        const jsonContainer = document.createElement('div');
+        jsonContainer.className = 'border rounded-lg overflow-hidden bg-gray-50';
+        
+        // Format the JSON with syntax highlighting
+        const jsonString = JSON.stringify(data, null, 2);
+        
+        jsonContainer.innerHTML = `
+            <pre class="p-6 overflow-auto max-h-96 text-sm">${escapeHtml(jsonString)}</pre>
+        `;
+        
+        rawTab.appendChild(jsonContainer);
+        
+        // Add copy functionality
+        document.getElementById('copy-json-btn').addEventListener('click', function() {
+            navigator.clipboard.writeText(jsonString).then(() => {
+                // Show success feedback
+                this.innerHTML = `
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Copied!
+                `;
+                this.classList.remove('bg-gray-100', 'hover:bg-gray-200', 'text-gray-700');
+                this.classList.add('bg-green-100', 'text-green-700');
+                
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    this.innerHTML = `
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                        </svg>
+                        Copy JSON
+                    `;
+                    this.classList.add('bg-gray-100', 'hover:bg-gray-200', 'text-gray-700');
+                    this.classList.remove('bg-green-100', 'text-green-700');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy JSON:', err);
+                
+                // Show error feedback
+                this.innerHTML = `
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Copy failed
+                `;
+                this.classList.remove('bg-gray-100', 'hover:bg-gray-200', 'text-gray-700');
+                this.classList.add('bg-red-100', 'text-red-700');
+                
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    this.innerHTML = `
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                        </svg>
+                        Copy JSON
+                    `;
+                    this.classList.add('bg-gray-100', 'hover:bg-gray-200', 'text-gray-700');
+                    this.classList.remove('bg-red-100', 'text-red-700');
+                }, 2000);
+            });
+        });
+    }
 
-    return `
-        <div class="bg-white rounded-lg shadow p-6">
-            <div class="flex items-center justify-between mb-6">
-                <h3 class="text-xl font-semibold">${productName}</h3>
-                <span class="px-4 py-1 rounded-full ${
-                    recommendation.approval_decision 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }">
-                    ${recommendation.approval_decision ? 'Approved' : 'Not Approved'}
-                </span>
+    // Helper function to escape HTML
+    function escapeHtml(html) {
+        const div = document.createElement('div');
+        div.textContent = html;
+        return div.innerHTML;
+    }
+
+    // ADD THIS NEW CODE: Move the "Load JSON" button to bottom left 
+    // Find the submit button container
+    const submitContainer = document.querySelector('#upload-form .flex.justify-end');
+    
+    // Change the container to have content at both ends
+    submitContainer.className = 'flex justify-between items-center';
+    
+    // Create the "Load JSON" button
+    const testJsonBtn = document.createElement('button');
+    testJsonBtn.id = 'test-json-btn';
+    testJsonBtn.className = 'bg-purple-600 hover:bg-purple-700 text-white py-2 px-3 rounded-lg text-sm font-medium flex items-center';
+    testJsonBtn.innerHTML = `
+        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v4M15 4v4M9 16l3-3 3 3M12 13v6"></path>
+        </svg>
+        Load JSON
+    `;
+    
+    // Insert the button at the beginning of the container
+    submitContainer.insertBefore(testJsonBtn, submitContainer.firstChild);
+    
+    // Create the modal dialog for JSON input (hidden by default)
+    const modal = document.createElement('div');
+    modal.id = 'json-modal';
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 m-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Paste JSON for Testing</h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-500">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+        </div>
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">Paste a mock of the master_response JSON to test UI rendering:</p>
+                <textarea id="json-input" class="w-full h-64 border border-gray-300 rounded p-2 font-mono text-sm" placeholder='{"provider":"openai","loan_recommendations":[...]}'></textarea>
             </div>
-
-            <!-- Product Details -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Maximum Amount</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_loan_amount)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">${productName === 'Term Loan' ? 'Monthly Payment' : 'Maximum Draw'}</p>
-                    <p class="text-lg font-semibold">$${formatNumber(recommendation.max_monthly_payment_amount)}</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4">
-                    <p class="text-sm text-gray-600">Confidence Score</p>
-                    <p class="text-lg font-semibold">${(recommendation.confidence_score * 100).toFixed(1)}%</p>
-                </div>
+            <div class="flex justify-end space-x-3">
+                <button id="load-sample-json" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded">
+                    Load Sample
+                </button>
+                <button id="load-json" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded">
+                    Test JSON
+                </button>
             </div>
-
-            <!-- Analysis -->
-            <div class="mb-6">
-                <h4 class="font-semibold text-gray-700 mb-2">Analysis</h4>
-                <p class="text-gray-600">${recommendation.detailed_analysis}</p>
-            </div>
-
-            <!-- Factors -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Risk Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${recommendation.risk_factors.map(factor => 
-                            `<li class="text-red-600">${factor}</li>`
-                        ).join('')}
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-semibold text-gray-700 mb-2">Mitigating Factors</h4>
-                    <ul class="list-disc pl-5 space-y-1">
-                        ${recommendation.mitigating_factors.map(factor => 
-                            `<li class="text-green-600">${factor}</li>`
-                        ).join('')}
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Conditions -->
-            <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Conditions if Approved</h4>
-                <ul class="list-disc pl-5 space-y-1">
-                    ${recommendation.conditions_if_approved.map(condition => 
-                        `<li class="text-gray-600">${condition}</li>`
-                    ).join('')}
-                </ul>
-            </div>
-
-            <!-- Product-specific details -->
-            ${recommendation.product_details ? `
-                <div class="mt-6 pt-6 border-t border-gray-200">
-                    <h4 class="font-semibold text-gray-700 mb-2">Product Details</h4>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        ${Object.entries(recommendation.product_details).map(([key, value]) => `
-                            <div class="bg-gray-50 rounded-lg p-3">
-                                <p class="text-xs text-gray-500">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
-                                <p class="text-sm font-semibold">${
-                                    typeof value === 'number' && key.includes('rate') 
-                                    ? `${value}%` 
-                                    : value
-                                }</p>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : ''}
         </div>
     `;
-} 
+    document.body.appendChild(modal);
+    
+    // Sample JSON for testing
+    const sampleJson = {
+        "provider": "openai",
+        "loan_recommendations": [
+            {
+                "product_type": "term_loan",
+                "product_name": "Term Loan",
+                "approval_decision": "APPROVED",
+                "confidence_score": 0.85,
+                "max_loan_amount": 25000,
+                "max_monthly_payment_amount": 2300,
+                "detailed_analysis": "Based on the bank statements provided, the business demonstrates strong and consistent cash flow. The average daily balance is trending upward over the past 3 months, and there are no NSF incidents. The business shows regular revenue deposits and has maintained adequate reserves to cover the proposed loan payments.",
+                "mitigating_factors": [
+                    "Strong upward trend in account balance",
+                    "No NSF incidents in the past 6 months",
+                    "Regular revenue deposits averaging $12,500 per month",
+                    "Consistent payment history to vendors"
+                ],
+                "risk_factors": [
+                    "Business is relatively new (less than 2 years)",
+                    "Seasonal fluctuations in revenue observed"
+                ],
+                "conditions_if_approved": [
+                    "Maintain minimum balance of $5,000",
+                    "Provide quarterly financial updates",
+                    "Personal guarantee required"
+                ],
+                "key_metrics": {
+                    "payment_coverage_ratio": 1.8,
+                    "average_daily_balance_trend": "increasing",
+                    "lowest_monthly_balance": 7500,
+                    "highest_nsf_month_count": 0,
+                    "total_revenue": 145000,
+                    "total_expenses": 98000,
+                    "net_cashflow": 47000
+                },
+                "analysis_based_on": {
+                    "used_bank_statements": true,
+                    "used_tax_returns": false
+                }
+            },
+            {
+                "product_type": "accounts_payable",
+                "product_name": "Accounts Payable Financing",
+                "approval_decision": "MANUAL_REVIEW",
+                "confidence_score": 0.65,
+                "max_loan_amount": 15000,
+                "max_monthly_payment_amount": 1800,
+                "detailed_analysis": "The business shows adequate cash flow for smaller AP financing amounts. While overall financials are positive, the inconsistent payment patterns to suppliers suggest a careful review is needed before establishing a larger credit limit. A 60-day term is recommended based on the observed cash flow cycle.",
+                "mitigating_factors": [
+                    "Positive overall cash flow",
+                    "Good account balance reserves",
+                    "No returned payments to vendors"
+                ],
+                "risk_factors": [
+                    "Irregular payment patterns to suppliers",
+                    "Occasional large withdrawals affecting liquidity",
+                    "Some months show tight cash flow margins"
+                ],
+                "conditions_if_approved": [
+                    "Start with lower credit limit of $15,000",
+                    "Review performance after 3 months for potential increase",
+                    "Provide complete AP aging report"
+                ],
+                "key_metrics": {
+                    "payment_coverage_ratio": 1.3,
+                    "average_daily_balance_trend": "stable",
+                    "lowest_monthly_balance": 5200,
+                    "highest_nsf_month_count": 0,
+                    "total_revenue": 145000,
+                    "total_expenses": 98000,
+                    "net_cashflow": 47000
+                },
+                "analysis_based_on": {
+                    "used_bank_statements": true,
+                    "used_tax_returns": false
+                }
+            }
+        ],
+        "analysis": {
+            "bank_statements": {
+                "continuity": {
+                    "continuous": true,
+                    "missing_periods": [],
+                    "statement_periods": [
+                        {"start_date": "2023-01-01", "end_date": "2023-01-31"},
+                        {"start_date": "2023-02-01", "end_date": "2023-02-28"},
+                        {"start_date": "2023-03-01", "end_date": "2023-03-31"}
+                    ]
+                },
+                "daily_balances": {
+                    "balances": [
+                        {"date": "2023-01-02", "balance": 10250.45},
+                        {"date": "2023-01-15", "balance": 12340.78},
+                        {"date": "2023-01-31", "balance": 8975.52},
+                        {"date": "2023-02-15", "balance": 15320.65},
+                        {"date": "2023-02-28", "balance": 11430.22},
+                        {"date": "2023-03-15", "balance": 18540.33},
+                        {"date": "2023-03-31", "balance": 22710.89}
+                    ],
+                    "average_balance": 14224.12,
+                    "min_balance": 8975.52,
+                    "max_balance": 22710.89
+                },
+                "nsf_information": {
+                    "incident_count": 0,
+                    "total_fees": 0,
+                    "nsf_incidents": []
+                },
+                "closing_balances": {
+                    "monthly_balances": [
+                        {"month": "2023-01", "balance": 8975.52},
+                        {"month": "2023-02", "balance": 11430.22},
+                        {"month": "2023-03", "balance": 22710.89}
+                    ],
+                    "average_closing_balance": 14372.21,
+                    "trend": "increasing"
+                },
+                "monthly_financials": {
+                    "monthly_data": [
+                        {
+                            "month": "2023-01",
+                            "revenue": 42500.00,
+                            "expenses": 35750.45,
+                            "net_cashflow": 6749.55
+                        },
+                        {
+                            "month": "2023-02",
+                            "revenue": 45750.30,
+                            "expenses": 29500.20,
+                            "net_cashflow": 16250.10
+                        },
+                        {
+                            "month": "2023-03",
+                            "revenue": 56750.25,
+                            "expenses": 32750.33,
+                            "net_cashflow": 24000.00
+                        }
+                    ],
+                    "total_revenue": 145000.55,
+                    "total_expenses": 98000.98,
+                    "net_cashflow": 47000.00
+                }
+            },
+            "tax_returns": {
+                "status": "not_provided",
+                "message": "No tax return documents were provided for analysis"
+            }
+        },
+        "document_types": {
+            "has_bank_statements": true,
+            "has_tax_returns": false
+        }
+    };
+    
+    // Event handler for "Load JSON" button
+    testJsonBtn.addEventListener('click', function() {
+        modal.classList.remove('hidden');
+    });
+    
+    // Event handlers for modal
+    document.getElementById('close-modal').addEventListener('click', function() {
+        modal.classList.add('hidden');
+    });
+    
+    document.getElementById('load-sample-json').addEventListener('click', function() {
+        document.getElementById('json-input').value = JSON.stringify(sampleJson, null, 2);
+    });
+    
+    document.getElementById('load-json').addEventListener('click', function() {
+        try {
+            const jsonText = document.getElementById('json-input').value;
+            const data = JSON.parse(jsonText);
+            
+            // Hide processing section and close modal
+            processingSection.classList.add('hidden');
+            modal.classList.add('hidden');
+            
+            // Show success message
+            showUploadStatus('Test JSON loaded successfully!', 'success');
+            
+            // Display the results using the mock data
+            displayResults(data);
+            
+            // If there's an existing results section, scroll to it
+            const resultsSection = document.getElementById('results-section');
+            if (resultsSection) {
+                resultsSection.scrollIntoView({ behavior: 'smooth' });
+            }
+        } catch (error) {
+            console.error('Error parsing JSON:', error);
+            
+            // Show error message
+            showUploadStatus('Error parsing JSON: ' + error.message, 'error');
+        }
+    });
+    
+    // Close modal if user clicks outside of it
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.classList.add('hidden');
+        }
+    });
+
+    // Add this function at the beginning of your script.js file, before displayResults function
+    function ensureChartJsLoaded() {
+        if (window.Chart) {
+            return Promise.resolve(); // Chart.js already loaded
+        }
+        
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+            script.onload = resolve;
+            script.onerror = () => reject(new Error('Failed to load Chart.js'));
+            document.head.appendChild(script);
+        });
+    }
+}); 

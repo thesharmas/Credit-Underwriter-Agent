@@ -8,6 +8,8 @@ import google.generativeai as genai
 from openai import OpenAI
 import PyPDF2
 from app.services.rate_limiter import RATE_LIMITERS
+from mistralai import Mistral
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,88 @@ class OpenAIWrapper(LLMWrapper):
             logger.error(f"❌ Error from OpenAI: {str(e)}")
             raise
 
+class MistralWrapper(LLMWrapper):
+    def __init__(self, model_type: ModelType = None):
+        super().__init__(model_type)
+        self.client = Mistral(api_key=Config.MISTRAL_API_KEY)
+        self.model_config = Config.get_model_config(LLMProvider.MISTRAL, model_type)
+        self.rate_limiter = RATE_LIMITERS.get("mistral", None)
+        logger.info(f"🤖 Initialized Mistral wrapper with {self.model_config['name']}")
+        
+    def add_pdf(self, file_path: str) -> None:
+        try:
+            content = ""
+            # Get the filename from the path
+            file_name = os.path.basename(file_path)
+            
+            # Upload the PDF file using Mistral's file upload API
+            uploaded_file = self.client.files.upload(
+                file={
+                    "file_name": file_name,
+                    "content": open(file_path, "rb"),
+                },
+                purpose="ocr"
+            )
+            
+            # Add a message referencing the uploaded file
+            self.messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Pdf Content:"
+                    },
+                    {
+                        "type": "file",
+                        "file_id": uploaded_file.id
+                    }
+                ]
+            })
+            logger.info("📄 Added PDF to conversation")
+        except Exception as e:
+            logger.error(f"Error adding PDF: {str(e)}")
+            raise
+
+    def add_json(self, data: dict) -> None:
+        try:
+            self.messages.append({
+                "role": "user", 
+                "content": f"JSON content:\n{json.dumps(data, indent=2)}"
+            })
+            logger.info("📄 Added JSON to conversation")
+        except Exception as e:
+            logger.error(f"Error adding JSON: {str(e)}")
+            raise
+
+    def get_response(self, prompt: str) -> str:
+        try:
+            if not prompt:
+                return ""
+                
+            self.messages.append({
+                "role": "user",
+                "content": prompt
+            })
+            
+            response = self.client.chat.complete(
+                model=self.model_config['name'],
+                messages=self.messages,
+                max_tokens=self.model_config['max_tokens'],
+                temperature=Config.TEMPERATURE
+            )
+            
+            response_text = response.choices[0].message.content
+            self.messages.append({
+                "role": "assistant",
+                "content": response_text
+            })
+            
+            return response_text
+            
+        except Exception as e:
+            logger.error(f"❌ Error from Mistral: {str(e)}")
+            raise
+
 class LLMFactory:
     @staticmethod
     def create_llm(
@@ -252,5 +336,7 @@ class LLMFactory:
             return GoogleWrapper(model_type)
         elif provider == LLMProvider.OPENAI:
             return OpenAIWrapper(model_type)
+        elif provider == LLMProvider.MISTRAL:
+            return MistralWrapper(model_type)
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")

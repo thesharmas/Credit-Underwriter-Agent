@@ -1104,3 +1104,139 @@ Return ONLY a valid JSON object in this exact format, with no additional text:
                 }
             }
         } 
+
+def classify_document_type() -> dict:
+    """
+    Classifies a document as either a bank statement or tax return based on its content.
+    The PDF content should already be loaded into the LLM's conversation history.
+    
+    Returns:
+        dict: Classification result with type and confidence score
+    """
+    classification_prompt = """You are a document classification expert. Analyze the provided document and determine if it's a bank statement or tax return.
+    
+    CRITICAL CHARACTERISTICS TO CHECK:
+
+    1. BANK STATEMENT INDICATORS:
+       - Account information (account numbers, routing numbers)
+       - Transaction history with dates, amounts, and descriptions
+       - Opening and closing balances
+       - Regular banking terminology (deposit, withdrawal, transfer)
+       - Bank name and branch details
+       - Statement period dates
+       - ATM/debit card transactions
+       - Service charges or bank fees
+       - Check numbers and details
+       - Available balance vs. current balance
+       - Direct deposits and ACH transactions
+    
+    2. TAX RETURN INDICATORS:
+       - IRS form numbers (1040, 1120, 1065, etc.)
+       - Tax year references
+       - Social Security Numbers or EIN
+       - Income sections (wages, business income, etc.)
+       - Deductions and credits
+       - Tax calculations and totals
+       - Filing status information
+       - Dependent information
+       - Tax preparer details
+       - Signature lines with perjury statement
+       - Schedule references (A, B, C, etc.)
+       - FICA, Medicare, or self-employment tax calculations
+    
+    3. DOCUMENT STRUCTURE:
+       Bank Statements typically have:
+       - Daily/chronological transaction listing
+       - Balance summaries
+       - Account holder information at top
+       - Page numbers and statement periods
+    
+       Tax Returns typically have:
+       - Sectioned layout with numbered lines
+       - Multiple schedules or attachments
+       - Specific IRS form layouts
+       - Tax calculation sections
+    
+    ANALYSIS STEPS:
+    1. Check for presence of DEFINITIVE indicators first
+       - IRS form numbers strongly indicate tax return
+       - Bank account numbers strongly indicate bank statement
+    
+    2. Look for MULTIPLE supporting indicators
+       - Don't rely on just one characteristic
+       - More matching indicators = higher confidence
+    
+    3. Consider document structure and layout
+       - Bank statements follow chronological order
+       - Tax returns follow IRS form structure
+    
+    4. Check for characteristic terminology
+       - Banking terms vs. tax terms
+       - Transaction descriptions vs. tax calculations
+    
+    Based on these characteristics, classify the document and provide:
+    1. The document type: ONLY "bank_statement" or "tax_return"
+    2. Confidence score: 0.0 to 1.0
+    3. List of key indicators found
+    
+    Respond in this exact JSON format:
+    {
+        "document_type": "bank_statement|tax_return",
+        "confidence_score": float,
+        "indicators_found": ["list of specific indicators found"],
+        "explanation": "Brief explanation of classification"
+    }"""
+    
+    try:
+        logger.info("🔄 Calling LLM for document classification")
+        response = _llm.get_response(classification_prompt)
+        
+        # Clean the response
+        cleaned_response = response.strip()
+        if "```json" in cleaned_response:
+            cleaned_response = cleaned_response.split("```json")[1]
+        if "```" in cleaned_response:
+            cleaned_response = cleaned_response.split("```")[0]
+        cleaned_response = cleaned_response.strip()
+        
+        # Parse and validate response
+        try:
+            result = json.loads(cleaned_response)
+            
+            # Validate required fields
+            required_fields = ["document_type", "confidence_score", "indicators_found", "explanation"]
+            for field in required_fields:
+                if field not in result:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Validate document type
+            if result["document_type"] not in ["bank_statement", "tax_return"]:
+                raise ValueError("Invalid document_type")
+            
+            # Validate confidence score
+            if not isinstance(result["confidence_score"], (int, float)):
+                raise ValueError("Invalid confidence_score type")
+            if not 0 <= result["confidence_score"] <= 1:
+                raise ValueError("Confidence score must be between 0 and 1")
+            
+            logger.info(f"Document classified as {result['document_type']} with {result['confidence_score']} confidence")
+            return result
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            return {
+                "document_type": "unknown",
+                "confidence_score": 0.0,
+                "indicators_found": [],
+                "explanation": f"Error parsing classification result: {str(e)}"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in classify_document_type: {str(e)}")
+        logger.error("Full traceback:", exc_info=True)
+        return {
+            "document_type": "unknown",
+            "confidence_score": 0.0,
+            "indicators_found": [],
+            "explanation": f"Classification error: {str(e)}"
+        } 

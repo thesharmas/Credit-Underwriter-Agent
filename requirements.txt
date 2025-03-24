@@ -7,3 +7,4 @@ PyPDF2
 requests
 werkzeug
 uuid
+mistralai
